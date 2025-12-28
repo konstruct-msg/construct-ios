@@ -1,6 +1,7 @@
 // Шифрование приватных ключей мастер-паролем
 // PBKDF2 для деривации ключа + AES-256-GCM для шифрования
 
+use crate::config::Config;
 use crate::storage::models::StoredPrivateKeys;
 use crate::utils::error::{ConstructError, Result};
 use crate::utils::time::current_timestamp;
@@ -15,11 +16,9 @@ use sha2::Sha256;
 use x25519_dalek::StaticSecret;
 use zeroize::{Zeroize, Zeroizing};
 
-/// Параметры PBKDF2
-const PBKDF2_ITERATIONS: u32 = 100_000; // Рекомендуемое значение OWASP
-const SALT_LENGTH: usize = 32; // 256 бит
-const KEY_LENGTH: usize = 32; // 256 бит для AES-256
-const NONCE_LENGTH: usize = 12; // 96 бит для GCM
+// Compile-time константы для размеров массивов (должны совпадать с Config::default())
+const SALT_LENGTH: usize = 32;
+const KEY_LENGTH: usize = 32;
 
 /// Незашифрованные приватные ключи для временного хранения
 #[derive(Zeroize)]
@@ -65,10 +64,10 @@ impl PrivateKeys {
 /// # Returns
 /// 256-битный ключ для AES-256-GCM
 pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LENGTH]>> {
-    if salt.len() != SALT_LENGTH {
+    if salt.len() != Config::global().salt_length {
         return Err(ConstructError::CryptoError(format!(
             "Invalid salt length: expected {}, got {}",
-            SALT_LENGTH,
+            Config::global().salt_length,
             salt.len()
         )));
     }
@@ -84,7 +83,7 @@ pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; K
     pbkdf2_hmac::<Sha256>(
         password.as_bytes(),
         salt,
-        PBKDF2_ITERATIONS,
+        Config::global().pbkdf2_iterations,
         &mut *key,
     );
 
@@ -163,8 +162,10 @@ pub fn decrypt_private_keys(
 
 /// Зашифровать данные с использованием AES-256-GCM
 fn encrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Vec<u8>> {
+    let nonce_length = Config::global().nonce_length;
+
     // Генерируем случайный nonce
-    let mut nonce_bytes = [0u8; NONCE_LENGTH];
+    let mut nonce_bytes = vec![0u8; nonce_length];
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
@@ -174,7 +175,7 @@ fn encrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| ConstructError::CryptoError(format!("Encryption failed: {}", e)))?;
 
     // Комбинируем nonce + ciphertext
-    let mut result = Vec::with_capacity(NONCE_LENGTH + ciphertext.len());
+    let mut result = Vec::with_capacity(nonce_length + ciphertext.len());
     result.extend_from_slice(&nonce_bytes);
     result.extend_from_slice(&ciphertext);
 
@@ -183,14 +184,16 @@ fn encrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Vec<u8>> {
 
 /// Расшифровать данные с использованием AES-256-GCM
 fn decrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    if data.len() < NONCE_LENGTH {
+    let nonce_length = Config::global().nonce_length;
+
+    if data.len() < nonce_length {
         return Err(ConstructError::CryptoError(
             "Invalid ciphertext: too short".to_string(),
         ));
     }
 
     // Извлекаем nonce и ciphertext
-    let (nonce_bytes, ciphertext) = data.split_at(NONCE_LENGTH);
+    let (nonce_bytes, ciphertext) = data.split_at(nonce_length);
     let nonce = Nonce::from_slice(nonce_bytes);
 
     // Расшифровываем
@@ -218,12 +221,13 @@ fn to_array_32(vec: &[u8]) -> Result<[u8; 32]> {
 /// Валидация силы пароля
 ///
 /// Минимальные требования:
-/// - Длина >= 8 символов
+/// - Длина >= конфигурируемый минимум (по умолчанию 8 символов)
 /// - Содержит буквы и цифры
 pub fn validate_password(password: &str) -> Result<()> {
-    if password.len() < 8 {
+    let min_length = Config::global().password_min_length;
+    if password.len() < min_length {
         return Err(ConstructError::ValidationError(
-            "Password must be at least 8 characters long".to_string(),
+            format!("Password must be at least {} characters long", min_length),
         ));
     }
 
@@ -357,6 +361,7 @@ mod tests {
 
         // Зашифрованные данные должны быть больше оригинала (nonce + ciphertext + tag)
         assert!(encrypted.len() > data.len());
-        assert_eq!(encrypted.len(), NONCE_LENGTH + data.len() + 16); // 16 - GCM tag
+        let expected_len = Config::global().nonce_length + data.len() + Config::global().gcm_tag_length;
+        assert_eq!(encrypted.len(), expected_len);
     }
 }

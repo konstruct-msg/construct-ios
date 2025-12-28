@@ -11,9 +11,6 @@ use rand_core::RngCore;
 use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey as KemPublicKeyDalek, StaticSecret};
 
-// Suite ID for the classic suite as per API_V3_SPEC.md
-const CLASSIC_SUITE_ID: u16 = 1;
-
 /// Concrete implementation of `CryptoProvider` for the classic suite.
 pub struct ClassicSuiteProvider;
 
@@ -258,6 +255,6 @@ impl CryptoProvider for ClassicSuiteProvider {
     }
 
     fn suite_id() -> u16 {
-        CLASSIC_SUITE_ID
+        crate::config::Config::global().classic_suite_id
     }
 }

@@ -44,16 +44,13 @@
 //! decrypt(msg2) ✅
 //! ```
 
+use crate::config::Config;
 use crate::crypto::handshake::InitiatorState;
 use crate::crypto::messaging::SecureMessaging;
 use crate::crypto::provider::CryptoProvider;
 use crate::crypto::SuiteID;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Constants for DoS protection for skipped messages.
-const MAX_SKIPPED_MESSAGES: u32 = 1000;
-const MAX_SKIPPED_MESSAGE_AGE_SECONDS: i64 = 7 * 24 * 60 * 60; // 7 days
 
 /// Double Ratchet Session
 ///
@@ -171,7 +168,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
             .map_err(|e| format!("KDF_RK failed: {}", e))?;
 
         Ok(Self {
-            suite_id: 1, // ClassicSuite
+            suite_id: Config::global().classic_suite_id,
             root_key,
             sending_chain_key: chain_key,
             sending_chain_length: 0,
@@ -230,13 +227,13 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
         // Perform DH(bob_identity_priv, alice_ephemeral_pub) → receiving_chain
         let dh_output = P::kem_decapsulate(local_identity, remote_dh_public.as_ref())
             .map_err(|e| format!("Failed to perform DH: {}", e))?;
-        let (new_root_key, receiving_chain) = P::kdf_rk(&root_key_val, &dh_output)
-            .map_err(|e| format!("KDF_RK failed: {}", e))?;
+        let (new_root_key, receiving_chain) =
+            P::kdf_rk(&root_key_val, &dh_output).map_err(|e| format!("KDF_RK failed: {}", e))?;
         root_key_val = new_root_key;
 
         // Generate new DH pair for sending
-        let (dh_private, dh_public) = P::generate_kem_keys()
-            .map_err(|e| format!("Failed to generate DH keys: {}", e))?;
+        let (dh_private, dh_public) =
+            P::generate_kem_keys().map_err(|e| format!("Failed to generate DH keys: {}", e))?;
 
         debug!(
             target: "crypto::double_ratchet",
@@ -246,8 +243,8 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
         // Perform second ratchet for sending chain
         let dh_output2 = P::kem_decapsulate(&dh_private, remote_dh_public.as_ref())
             .map_err(|e| format!("Failed to perform DH: {}", e))?;
-        let (final_root_key, sending_chain) = P::kdf_rk(&root_key_val, &dh_output2)
-            .map_err(|e| format!("KDF_RK failed: {}", e))?;
+        let (final_root_key, sending_chain) =
+            P::kdf_rk(&root_key_val, &dh_output2).map_err(|e| format!("KDF_RK failed: {}", e))?;
 
         let mut session = Self {
             suite_id: first_message.suite_id,
@@ -266,7 +263,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
             contact_id: contact_id.clone(),
         };
 
-        // ⚠️ КРИТИЧЕСКИ ВАЖНО: Расшифровываем первое сообщение!
+        // КРИТИЧЕСКИ ВАЖНО: Расшифровываем первое сообщение!
         // Bob должен прочитать первое сообщение чтобы получить plaintext.
         debug!(
             target: "crypto::double_ratchet",
@@ -302,15 +299,15 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
             "Encrypting message"
         );
 
-        let (message_key, next_chain_key) = P::kdf_ck(&self.sending_chain_key)
-            .map_err(|e| format!("KDF (CK) failed: {}", e))?;
+        let (message_key, next_chain_key) =
+            P::kdf_ck(&self.sending_chain_key).map_err(|e| format!("KDF (CK) failed: {}", e))?;
         self.sending_chain_key = next_chain_key;
 
         let message_number = self.sending_chain_length;
         self.sending_chain_length += 1;
 
-        // Generate nonce - use 12 bytes for ChaCha20Poly1305
-        let nonce = P::generate_nonce(12)
+        // Generate nonce - use configured nonce length for ChaCha20Poly1305
+        let nonce = P::generate_nonce(Config::global().chacha_nonce_length)
             .map_err(|e| format!("Nonce generation failed: {}", e))?;
 
         // Convert dh_ratchet_public to [u8; 32] first
@@ -418,7 +415,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
                 self.receiving_chain_length += 1;
 
                 // DoS protection
-                if self.skipped_message_keys.len() > MAX_SKIPPED_MESSAGES as usize {
+                if self.skipped_message_keys.len() > Config::global().max_skipped_messages as usize {
                     return Err("Too many skipped messages".to_string());
                 }
             }
@@ -456,9 +453,8 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
         });
 
         // Также очищаем timestamps
-        self.skipped_key_timestamps.retain(|msg_num, _| {
-            self.skipped_message_keys.contains_key(msg_num)
-        });
+        self.skipped_key_timestamps
+            .retain(|msg_num, _| self.skipped_message_keys.contains_key(msg_num));
 
         let removed_count = initial_count - self.skipped_message_keys.len();
         if removed_count > 0 {
@@ -476,7 +472,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
 impl<P: CryptoProvider> DoubleRatchetSession<P> {
     /// Cleanup старых skipped message keys с дефолтным периодом (7 дней)
     pub fn cleanup_old_skipped_keys_default(&mut self) {
-        self.cleanup_old_skipped_keys(MAX_SKIPPED_MESSAGE_AGE_SECONDS);
+        self.cleanup_old_skipped_keys(Config::global().max_skipped_message_age_seconds);
     }
 
     /// Выполнить DH ratchet step
@@ -507,22 +503,22 @@ impl<P: CryptoProvider> DoubleRatchetSession<P> {
         let dh_receive = P::kem_decapsulate(dh_private, new_remote_dh.as_ref())
             .map_err(|e| format!("DH failed: {}", e))?;
 
-        let (new_root_key, new_receiving_chain) = P::kdf_rk(&self.root_key, &dh_receive)
-            .map_err(|e| format!("KDF_RK failed: {}", e))?;
+        let (new_root_key, new_receiving_chain) =
+            P::kdf_rk(&self.root_key, &dh_receive).map_err(|e| format!("KDF_RK failed: {}", e))?;
         self.root_key = new_root_key;
         self.receiving_chain_key = new_receiving_chain;
         self.receiving_chain_length = 0;
 
         // 2. Generate new DH pair for sending
-        let (new_dh_private, new_dh_public) = P::generate_kem_keys()
-            .map_err(|e| format!("Failed to generate DH keys: {}", e))?;
+        let (new_dh_private, new_dh_public) =
+            P::generate_kem_keys().map_err(|e| format!("Failed to generate DH keys: {}", e))?;
 
         // 3. Get sending chain key using new DH private and new remote DH
         let dh_send = P::kem_decapsulate(&new_dh_private, new_remote_dh.as_ref())
             .map_err(|e| format!("DH failed: {}", e))?;
 
-        let (new_root_key2, new_sending_chain) = P::kdf_rk(&self.root_key, &dh_send)
-            .map_err(|e| format!("KDF_RK failed: {}", e))?;
+        let (new_root_key2, new_sending_chain) =
+            P::kdf_rk(&self.root_key, &dh_send).map_err(|e| format!("KDF_RK failed: {}", e))?;
         self.root_key = new_root_key2;
         self.sending_chain_key = new_sending_chain;
         self.sending_chain_length = 0;
@@ -561,8 +557,13 @@ impl<P: CryptoProvider> DoubleRatchetSession<P> {
         associated_data.extend_from_slice(&encrypted.dh_public_key);
         associated_data.extend_from_slice(&encrypted.message_number.to_be_bytes());
 
-        let result = P::aead_decrypt(message_key, &encrypted.nonce, &encrypted.ciphertext, Some(&associated_data))
-            .map_err(|e| format!("Decryption failed: {}", e));
+        let result = P::aead_decrypt(
+            message_key,
+            &encrypted.nonce,
+            &encrypted.ciphertext,
+            Some(&associated_data),
+        )
+        .map_err(|e| format!("Decryption failed: {}", e));
 
         if result.is_ok() {
             debug!(target: "crypto::double_ratchet", "Decryption successful");
@@ -674,13 +675,18 @@ mod tests {
         use crate::crypto::handshake::x3dh::X3DHPublicKeyBundle;
 
         // Setup: Alice and Bob both have identity keys
-        let (alice_identity_priv, alice_identity_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
-        let (bob_identity_priv, bob_identity_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (alice_identity_priv, alice_identity_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (bob_identity_priv, bob_identity_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
 
         // Bob generates his registration keys
-        let (bob_signed_prekey_priv, bob_signed_prekey_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
-        let (bob_signing_key, bob_verifying_key) = ClassicSuiteProvider::generate_signature_keys().unwrap();
-        let bob_signature = ClassicSuiteProvider::sign(&bob_signing_key, bob_signed_prekey_pub.as_ref()).unwrap();
+        let (bob_signed_prekey_priv, bob_signed_prekey_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (bob_signing_key, bob_verifying_key) =
+            ClassicSuiteProvider::generate_signature_keys().unwrap();
+        let bob_signature =
+            ClassicSuiteProvider::sign(&bob_signing_key, bob_signed_prekey_pub.as_ref()).unwrap();
 
         // Bob's public bundle (what Alice gets from server)
         let bob_bundle = X3DHPublicKeyBundle {
@@ -693,16 +699,21 @@ mod tests {
 
         // Alice performs X3DH as initiator
         let (root_key_alice, initiator_state) =
-            X3DHProtocol::<ClassicSuiteProvider>::perform_as_initiator(&alice_identity_priv, &bob_bundle).unwrap();
+            X3DHProtocol::<ClassicSuiteProvider>::perform_as_initiator(
+                &alice_identity_priv,
+                &bob_bundle,
+            )
+            .unwrap();
 
         // Alice creates session
-        let mut alice_session = DoubleRatchetSession::<ClassicSuiteProvider>::new_initiator_session(
-            &root_key_alice,
-            initiator_state,
-            &bob_identity_pub,
-            "bob".to_string(),
-        )
-        .unwrap();
+        let mut alice_session =
+            DoubleRatchetSession::<ClassicSuiteProvider>::new_initiator_session(
+                &root_key_alice,
+                initiator_state,
+                &bob_identity_pub,
+                "bob".to_string(),
+            )
+            .unwrap();
 
         // Alice sends first message
         let plaintext1 = b"Hello Bob!";
@@ -710,7 +721,8 @@ mod tests {
 
         // Bob extracts Alice's ephemeral public from first message
         // and performs X3DH as responder
-        let alice_ephemeral_pub = ClassicSuiteProvider::kem_public_key_from_bytes(encrypted1.dh_public_key.to_vec());
+        let alice_ephemeral_pub =
+            ClassicSuiteProvider::kem_public_key_from_bytes(encrypted1.dh_public_key.to_vec());
 
         let root_key_bob = X3DHProtocol::<ClassicSuiteProvider>::perform_as_responder(
             &bob_identity_priv,
@@ -722,13 +734,14 @@ mod tests {
 
         // Bob creates session from first message
         // ⚠️ ВАЖНО: new_responder_session теперь возвращает (session, plaintext)
-        let (mut bob_session, decrypted1) = DoubleRatchetSession::<ClassicSuiteProvider>::new_responder_session(
-            &root_key_bob,
-            &bob_identity_priv,
-            &encrypted1,
-            "alice".to_string(),
-        )
-        .unwrap();
+        let (mut bob_session, decrypted1) =
+            DoubleRatchetSession::<ClassicSuiteProvider>::new_responder_session(
+                &root_key_bob,
+                &bob_identity_priv,
+                &encrypted1,
+                "alice".to_string(),
+            )
+            .unwrap();
 
         // Verify first message was decrypted correctly
         assert_eq!(decrypted1, plaintext1);
@@ -747,13 +760,18 @@ mod tests {
         use crate::crypto::handshake::x3dh::X3DHPublicKeyBundle;
 
         // Setup session (simplified)
-        let (alice_identity_priv, alice_identity_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
-        let (bob_identity_priv, bob_identity_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (alice_identity_priv, alice_identity_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (bob_identity_priv, bob_identity_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
 
         // Bob generates his registration keys
-        let (bob_signed_prekey_priv, bob_signed_prekey_pub) = ClassicSuiteProvider::generate_kem_keys().unwrap();
-        let (bob_signing_key, bob_verifying_key) = ClassicSuiteProvider::generate_signature_keys().unwrap();
-        let bob_signature = ClassicSuiteProvider::sign(&bob_signing_key, bob_signed_prekey_pub.as_ref()).unwrap();
+        let (bob_signed_prekey_priv, bob_signed_prekey_pub) =
+            ClassicSuiteProvider::generate_kem_keys().unwrap();
+        let (bob_signing_key, bob_verifying_key) =
+            ClassicSuiteProvider::generate_signature_keys().unwrap();
+        let bob_signature =
+            ClassicSuiteProvider::sign(&bob_signing_key, bob_signed_prekey_pub.as_ref()).unwrap();
 
         let bob_bundle = X3DHPublicKeyBundle {
             identity_public: bob_identity_pub.clone(),
@@ -764,7 +782,11 @@ mod tests {
         };
 
         let (root_key, initiator_state) =
-            X3DHProtocol::<ClassicSuiteProvider>::perform_as_initiator(&alice_identity_priv, &bob_bundle).unwrap();
+            X3DHProtocol::<ClassicSuiteProvider>::perform_as_initiator(
+                &alice_identity_priv,
+                &bob_bundle,
+            )
+            .unwrap();
 
         let mut alice = DoubleRatchetSession::<ClassicSuiteProvider>::new_initiator_session(
             &root_key,
@@ -780,7 +802,8 @@ mod tests {
         let msg3 = alice.encrypt(b"Message 3").unwrap();
 
         // Bob receives messages out of order: 1, 3, 2
-        let alice_ephemeral_pub = ClassicSuiteProvider::kem_public_key_from_bytes(msg1.dh_public_key.to_vec());
+        let alice_ephemeral_pub =
+            ClassicSuiteProvider::kem_public_key_from_bytes(msg1.dh_public_key.to_vec());
 
         let root_key_bob = X3DHProtocol::<ClassicSuiteProvider>::perform_as_responder(
             &bob_identity_priv,

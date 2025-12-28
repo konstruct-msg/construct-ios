@@ -18,6 +18,7 @@ uniffi::include_scaffolding!("construct_core");
 
 // Модули
 pub mod api;
+pub mod config;
 pub mod crypto;
 pub mod protocol;
 pub mod storage;
@@ -42,6 +43,9 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn init() {
+    // Инициализация конфигурации (должна быть первой!)
+    let _ = config::Config::init();
+
     // Настройка panic hook для лучшей отладки в браузере
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();

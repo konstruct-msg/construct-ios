@@ -95,12 +95,16 @@ pub struct ReconnectState {
 impl ReconnectState {
     /// Создать новое состояние переподключения
     pub fn new() -> Self {
+        let cfg = crate::config::Config::global();
+        let initial_delay = cfg.websocket_retry_initial_ms as u32;
+        let max_delay = cfg.websocket_retry_max_ms as u32;
+
         Self {
             attempts: 0,
             max_attempts: 0,        // Бесконечные попытки
-            current_delay_ms: 1000, // Начинаем с 1 секунды
-            initial_delay_ms: 1000,
-            max_delay_ms: 30000, // Максимум 30 секунд
+            current_delay_ms: initial_delay,
+            initial_delay_ms: initial_delay,
+            max_delay_ms: max_delay,
             enabled: true,
         }
     }

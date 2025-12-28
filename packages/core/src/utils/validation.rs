@@ -1,18 +1,21 @@
+use crate::config::Config;
 use crate::utils::error::Result;
 
 pub fn validate_public_key(key: &[u8]) -> Result<()> {
-    if key.len() != 32 {
+    let expected_size = Config::global().public_key_size;
+    if key.len() != expected_size {
         return Err(crate::utils::error::ConstructError::ValidationError(
-            "Public key must be 32 bytes".to_string(),
+            format!("Public key must be {} bytes", expected_size),
         ));
     }
     Ok(())
 }
 
 pub fn validate_signature(sig: &[u8]) -> Result<()> {
-    if sig.len() != 64 {
+    let expected_size = Config::global().signature_size;
+    if sig.len() != expected_size {
         return Err(crate::utils::error::ConstructError::ValidationError(
-            "Signature must be 64 bytes".to_string(),
+            format!("Signature must be {} bytes", expected_size),
         ));
     }
     Ok(())

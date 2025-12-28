@@ -292,7 +292,7 @@ impl ClassicCryptoCore {
             ciphertext,
             nonce,
             previous_chain_length: 0,  // Not used by decryption
-            suite_id: 1,  // Classic suite
+            suite_id: crate::config::Config::global().classic_suite_id,
         };
 
         // Note: session_id from Swift is actually contact_id in our new API
@@ -311,6 +311,9 @@ impl ClassicCryptoCore {
 /// Create a new CryptoCore instance (exported via UDL)
 /// UniFFI automatically wraps this in Arc<>, so we return Arc<ClassicCryptoCore>
 pub fn create_crypto_core() -> Result<Arc<ClassicCryptoCore>, CryptoError> {
+    // Инициализировать конфигурацию при первом вызове
+    let _ = crate::config::Config::init();
+
     let client = ClassicClient::<ClassicSuiteProvider>::new()
         .map_err(|_| CryptoError::InitializationFailed)?;
 

@@ -1,5 +1,6 @@
 // Валидация входящих данных
 
+use crate::config::Config;
 use crate::protocol::messages::{ChatMessage, ClientMessage, RegistrationBundle};
 use crate::utils::error::{ConstructError, Result};
 use base64::{engine::general_purpose, Engine as _};
@@ -16,9 +17,11 @@ pub fn validate_base64(encoded: &str) -> Result<()> {
 
 /// Валидация имени пользователя
 pub fn validate_username(username: &str) -> Result<()> {
-    if username.len() < 3 || username.len() > 32 {
+    let cfg = Config::global();
+    if username.len() < cfg.username_min_length || username.len() > cfg.username_max_length {
         return Err(ConstructError::ValidationError(
-            "Username must be between 3 and 32 characters".to_string(),
+            format!("Username must be between {} and {} characters",
+                cfg.username_min_length, cfg.username_max_length),
         ));
     }
 
@@ -39,7 +42,7 @@ pub fn validate_username(username: &str) -> Result<()> {
 /// Валидация UUID v4
 pub fn validate_uuid(uuid: &str) -> Result<()> {
     // Простая проверка формата UUID
-    if uuid.len() != 36 {
+    if uuid.len() != Config::global().uuid_length {
         return Err(ConstructError::ValidationError(
             "Invalid UUID format: incorrect length".to_string(),
         ));
@@ -63,9 +66,9 @@ pub fn validate_chat_message(msg: &ChatMessage) -> Result<()> {
     validate_uuid(&msg.to)?;
 
     // Проверка ephemeral key (должен быть 32 байта для X25519)
-    if msg.ephemeral_public_key.len() != 32 {
+    if msg.ephemeral_public_key.len() != Config::global().ephemeral_key_size {
         return Err(ConstructError::ValidationError(
-            "Ephemeral public key must be 32 bytes".to_string(),
+            format!("Ephemeral public key must be {} bytes", Config::global().ephemeral_key_size),
         ));
     }
 
@@ -80,14 +83,13 @@ pub fn validate_chat_message(msg: &ChatMessage) -> Result<()> {
 
     // Проверка timestamp (не должен быть в будущем или слишком старым)
     let now = crate::utils::time::now();
-    if msg.timestamp > now + 300 {
-        // 5 минут в будущем
+    let cfg = Config::global();
+    if msg.timestamp > now + cfg.message_timestamp_future_tolerance_secs as u64 {
         return Err(ConstructError::ValidationError(
             "Message timestamp is too far in the future".to_string(),
         ));
     }
-    if msg.timestamp < now.saturating_sub(3600) {
-        // 1 час в прошлом
+    if msg.timestamp < now.saturating_sub(cfg.message_timestamp_past_tolerance_secs as u64) {
         return Err(ConstructError::ValidationError(
             "Message timestamp is too old".to_string(),
         ));
@@ -98,30 +100,32 @@ pub fn validate_chat_message(msg: &ChatMessage) -> Result<()> {
 
 /// Валидация RegistrationBundle
 pub fn validate_registration_bundle(bundle: &RegistrationBundle) -> Result<()> {
+    let cfg = Config::global();
+
     // Base64 X25519 public key должен быть 44 символа
-    if bundle.identity_public.len() != 44 {
+    if bundle.identity_public.len() != cfg.base64_public_key_length {
         return Err(ConstructError::ValidationError(
-            "Identity public key must be 44 characters (32 bytes base64)".to_string(),
+            format!("Identity public key must be {} characters (32 bytes base64)", cfg.base64_public_key_length),
         ));
     }
 
-    if bundle.signed_prekey_public.len() != 44 {
+    if bundle.signed_prekey_public.len() != cfg.base64_public_key_length {
         return Err(ConstructError::ValidationError(
-            "Signed prekey public must be 44 characters (32 bytes base64)".to_string(),
+            format!("Signed prekey public must be {} characters (32 bytes base64)", cfg.base64_public_key_length),
         ));
     }
 
     // Ed25519 signature должна быть 88 символов (64 bytes base64)
-    if bundle.signature.len() != 88 {
+    if bundle.signature.len() != cfg.base64_signature_length {
         return Err(ConstructError::ValidationError(
-            "Signature must be 88 characters (64 bytes base64)".to_string(),
+            format!("Signature must be {} characters (64 bytes base64)", cfg.base64_signature_length),
         ));
     }
 
     // Ed25519 verifying key должен быть 44 символа
-    if bundle.verifying_key.len() != 44 {
+    if bundle.verifying_key.len() != cfg.base64_public_key_length {
         return Err(ConstructError::ValidationError(
-            "Verifying key must be 44 characters (32 bytes base64)".to_string(),
+            format!("Verifying key must be {} characters (32 bytes base64)", cfg.base64_public_key_length),
         ));
     }
 
@@ -133,9 +137,10 @@ pub fn validate_client_message(msg: &ClientMessage) -> Result<()> {
     match msg {
         ClientMessage::Register(data) => {
             validate_username(&data.username)?;
-            if data.password.len() < 8 {
+            let min_pass = Config::global().password_min_length;
+            if data.password.len() < min_pass {
                 return Err(ConstructError::ValidationError(
-                    "Password too short (min 8 chars)".to_string(),
+                    format!("Password too short (min {} chars)", min_pass),
                 ));
             }
             // Декодируем и валидируем бандл
@@ -151,9 +156,10 @@ pub fn validate_client_message(msg: &ClientMessage) -> Result<()> {
         }
         ClientMessage::Login(data) => {
             validate_username(&data.username)?;
-            if data.password.len() < 8 {
+            let min_pass = Config::global().password_min_length;
+            if data.password.len() < min_pass {
                 return Err(ConstructError::ValidationError(
-                    "Password too short".to_string(),
+                    format!("Password too short (min {} chars)", min_pass),
                 ));
             }
         }

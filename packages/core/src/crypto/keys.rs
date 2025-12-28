@@ -158,8 +158,8 @@ impl<P: CryptoProvider> KeyManager<P> {
 
         self.current_signed_prekey = Some(prekey_store);
 
-        // Очищаем старые prekeys (старше 30 дней)
-        self.cleanup_old_prekeys(30 * 24 * 3600);
+        // Очищаем старые prekeys (используя конфигурируемый период)
+        self.cleanup_old_prekeys(crate::config::Config::global().prekey_cleanup_period_secs);
 
         Ok(())
     }

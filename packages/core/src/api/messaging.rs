@@ -37,7 +37,7 @@ impl From<EncryptedMessage> for EncryptedRatchetMessage {
             nonce: msg.nonce,
             message_number: msg.message_number,
             previous_chain_length: msg.previous_chain_length,
-            suite_id: 1, // Default to classic suite
+            suite_id: crate::config::Config::global().classic_suite_id,
         }
     }
 }

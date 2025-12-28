@@ -5,29 +5,19 @@ authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Core Rust/WASM engine for Construct Messenger with E2EE"
+description = "Core Rust engine for Construct Messenger with E2EE"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Feature flags для разных платформ
 [features]
-default = ["wasm"]
-console_error_panic_hook = ["dep:console_error_panic_hook"]
-wasm = [
-    "dep:wasm-bindgen",
-    "dep:js-sys",
-    "dep:web-sys",
-    "dep:wasm-bindgen-futures",
-    "dep:serde-wasm-bindgen",
-    "console_error_panic_hook",
-    # "indexeddb",  # Пока не используем
-]
+default = []
 desktop = [
     "tokio/rt",
 ]
 mobile = []
-test = ["wasm", "desktop"]
+test = ["desktop"]
 post-quantum = [
     "dep:pqcrypto-kyber",
     "dep:pqcrypto-dilithium",
@@ -66,51 +56,10 @@ bincode = { workspace = true }
 base64 = { workspace = true }
 serde_json = { workspace = true }
 
-# Optional panic hook for wasm
-console_error_panic_hook = { version = "0.1.7", optional = true }
-
-# WASM-specific (optional)
-wasm-bindgen = { workspace = true, optional = true }
-wasm-bindgen-futures = { workspace = true, optional = true }
-js-sys = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = [
-    "console",
-    "Window",
-    "Document",
-    "IdbFactory",
-    "IdbDatabase",
-    "IdbTransaction",
-    "IdbTransactionMode",
-    "IdbObjectStoreParameters",
-    "IdbRequest",
-    "IdbOpenDbRequest",
-    "IdbVersionChangeEvent",
-    "DomException",
-    "IdbObjectStore",
-    "IdbIndex",
-    "IdbCursor",
-    "IdbKeyRange",
-    "WebSocket",
-    "BinaryType",
-    "MessageEvent",
-    "ErrorEvent",
-    "CloseEvent",
-    "Event",
-] }
-serde-wasm-bindgen = { workspace = true, optional = true }
-
-# IndexedDB для WASM (пока не используем, реализуем через web-sys напрямую)
-# indexeddb = { version = "0.4", optional = true }
-
 # Desktop dependencies
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = true }
 
-# Для getrandom в WASM
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
 hex = "0.4"
 
 [build-dependencies]
@@ -122,6 +71,3 @@ lto = true
 opt-level = "s"
 codegen-units = 1
 panic = "abort"
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O4", "--enable-bulk-memory", "--enable-reference-types"]

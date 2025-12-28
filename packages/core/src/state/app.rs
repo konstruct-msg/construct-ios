@@ -160,15 +160,7 @@ pub struct AppState<P: CryptoProvider> {
     conversations_manager: ConversationsManager,
 
     // === Хранилище ===
-    #[cfg(target_arch = "wasm32")]
-    storage: IndexedDbStorage,
-
-    #[cfg(not(target_arch = "wasm32"))]
     storage: MemoryStorage,
-
-    // === Сетевое соединение ===
-    #[cfg(target_arch = "wasm32")]
-    transport: Option<WebSocketTransport>,
 
     // === Состояние соединения ===
     connection_state: ConnectionState,
@@ -611,32 +603,16 @@ impl<P: CryptoProvider> AppState<P> {
     // === Очистка ===
 
     /// Очистить все данные
-    #[cfg(target_arch = "wasm32")]
-    pub async fn clear_all_data(&mut self) -> Result<()> {
+    pub fn clear_all_data(&mut self) -> Result<()> {
         // Очистить кеши
         self.message_cache.clear();
         self.conversations_manager.clear_all();
         self.contact_manager.clear_all();
 
-        // Сбросить состояние
-        self.user_id = None;
-        self.username = None;
-        self.active_conversation = None;
-        self.connection_state = ConnectionState::Disconnected;
-
-        // TODO: Очистить IndexedDB полностью
-
-        Ok(())
-    }
-
-    /// Очистить все данные (non-WASM версия)
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn clear_all_data(&mut self) -> Result<()> {
-        self.message_cache.clear();
-        self.conversations_manager.clear_all();
-        self.contact_manager.clear_all();
+        // Очистить хранилище
         self.storage.clear_all()?;
 
+        // Сбросить состояние
         self.user_id = None;
         self.username = None;
         self.active_conversation = None;

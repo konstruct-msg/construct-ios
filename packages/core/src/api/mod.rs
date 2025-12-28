@@ -1,17 +1,13 @@
-// Публичный API для TypeScript/JavaScript
+// Публичный API для мессенджера
 // Высокоуровневые методы для работы с мессенджером
 
 pub mod messaging;
 pub mod contacts;
 pub mod crypto;
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 /// Главный API для мессенджера
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct MessengerAPI {
-    // Внутренние компоненты будут добавлены позже
+    // Внутренние компоненты будут добавлены по мере необходимости
 }
 
 impl MessengerAPI {
@@ -20,8 +16,8 @@ impl MessengerAPI {
     }
 
     /// Инициализация мессенджера
+    /// В текущей реализации не требует дополнительных действий
     pub async fn initialize(&mut self) -> crate::utils::error::Result<()> {
-        // TODO: Реализация
         Ok(())
     }
 }

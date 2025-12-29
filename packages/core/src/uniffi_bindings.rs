@@ -84,6 +84,16 @@ struct KeyBundle {
     suite_id: u16,
 }
 
+// Private keys for persistence (exported via UDL)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateKeysJson {
+    pub identity_secret: String,  // Base64
+    pub signing_secret: String,   // Base64
+    pub signed_prekey_secret: String,  // Base64
+    pub prekey_signature: String, // Base64
+    pub suite_id: String,
+}
+
 // UniFFI interface implementation (exported via UDL, not proc-macros)
 impl ClassicCryptoCore {
     /// Export registration bundle as JSON string
@@ -134,6 +144,38 @@ impl ClassicCryptoCore {
             .map_err(|_| CryptoError::SerializationFailed)
     }
 
+    /// Export private keys as JSON string for persistence
+    /// SECURITY: Only call this method to store keys in secure storage (Keychain)
+    pub fn export_private_keys_json(&self) -> Result<String, CryptoError> {
+        let client = self.inner.lock().unwrap();
+
+        // Get private keys from key manager
+        let identity_secret = client.key_manager().identity_secret_key()
+            .map_err(|_| CryptoError::InvalidKeyData)?;
+        let signing_secret = client.key_manager().signing_secret_key()
+            .map_err(|_| CryptoError::InvalidKeyData)?;
+        let prekey = client.key_manager().current_signed_prekey()
+            .map_err(|_| CryptoError::InvalidKeyData)?;
+
+        // Convert to bytes - use AsRef<[u8]> trait bound
+        let identity_bytes: Vec<u8> = <_ as AsRef<[u8]>>::as_ref(identity_secret).to_vec();
+        let signing_bytes: Vec<u8> = <_ as AsRef<[u8]>>::as_ref(signing_secret).to_vec();
+        let prekey_secret_bytes: Vec<u8> = <_ as AsRef<[u8]>>::as_ref(&prekey.key_pair.0).to_vec();
+
+        // Encode to base64
+        use base64::Engine;
+        let private_keys_json = PrivateKeysJson {
+            identity_secret: base64::engine::general_purpose::STANDARD.encode(&identity_bytes),
+            signing_secret: base64::engine::general_purpose::STANDARD.encode(&signing_bytes),
+            signed_prekey_secret: base64::engine::general_purpose::STANDARD.encode(&prekey_secret_bytes),
+            prekey_signature: base64::engine::general_purpose::STANDARD.encode(&prekey.signature),
+            suite_id: "1".to_string(),
+        };
+
+        serde_json::to_string(&private_keys_json)
+            .map_err(|_| CryptoError::SerializationFailed)
+    }
+
     /// Initialize a session with a contact
     pub fn init_session(
         &self,
@@ -166,6 +208,13 @@ impl ClassicCryptoCore {
         );
 
         let mut client = self.inner.lock().unwrap();
+
+        // Log local keys for debugging (sender side)
+        let local_bundle = client.key_manager().export_registration_bundle()
+            .map_err(|_| CryptoError::InitializationFailed)?;
+        eprintln!("🔑 Bob (sender) local keys during init_session:");
+        eprintln!("   Local identity (hex): {}", hex::encode(&local_bundle.identity_public));
+        eprintln!("   Remote identity (hex): {}", hex::encode(&key_bundle.identity_public));
 
         // Initialize the session (returns internal session_id which we ignore)
         client.init_session(&contact_id, &public_bundle, &remote_identity)
@@ -262,6 +311,14 @@ impl ClassicCryptoCore {
         );
 
         let mut client = self.inner.lock().unwrap();
+
+        // Log local keys for debugging
+        let local_bundle = client.key_manager().export_registration_bundle()
+            .map_err(|_| CryptoError::InitializationFailed)?;
+        eprintln!("🔑 Alice (receiver) local keys:");
+        eprintln!("   Local identity (hex): {}", hex::encode(&local_bundle.identity_public));
+        eprintln!("   Local signed prekey (hex): {}", hex::encode(&local_bundle.signed_prekey_public));
+
         let (_internal_session_id, plaintext_bytes) = client.init_receiving_session_with_ephemeral(
             &contact_id,
             &remote_identity,
@@ -269,6 +326,12 @@ impl ClassicCryptoCore {
             &encrypted_first_message,
         )
         .map_err(|e| {
+            // Use eprintln! to ensure error is visible even if tracing is not initialized
+            eprintln!("❌ RUST ERROR: init_receiving_session_with_ephemeral failed: {}", e);
+            eprintln!("   Contact ID: {}", contact_id);
+            eprintln!("   Remote identity (hex): {}", hex::encode(&key_bundle.identity_public));
+            eprintln!("   Remote ephemeral (hex): {}", hex::encode(&first_msg.ephemeral_public_key));
+            eprintln!("   Message number: {}", first_msg.message_number);
             tracing::error!("init_receiving_session_with_ephemeral failed: {:?}", e);
             CryptoError::SessionInitializationFailed
         })?;
@@ -377,6 +440,42 @@ pub fn create_crypto_core() -> Result<Arc<ClassicCryptoCore>, CryptoError> {
 
     let client = ClassicClient::<ClassicSuiteProvider>::new()
         .map_err(|_| CryptoError::InitializationFailed)?;
+
+    Ok(Arc::new(ClassicCryptoCore {
+        inner: Mutex::new(client),
+    }))
+}
+
+/// Create a CryptoCore instance from existing private keys (exported via UDL)
+/// Used to restore cryptographic state from secure storage (e.g., iOS Keychain)
+pub fn create_crypto_core_from_keys_json(keys_json: String) -> Result<Arc<ClassicCryptoCore>, CryptoError> {
+    // Инициализировать конфигурацию при первом вызове
+    let _ = crate::config::Config::init();
+
+    // Parse JSON
+    let private_keys: PrivateKeysJson = serde_json::from_str(&keys_json)
+        .map_err(|_| CryptoError::SerializationFailed)?;
+
+    // Decode base64 to bytes
+    use base64::Engine;
+    let identity_secret = base64::engine::general_purpose::STANDARD.decode(&private_keys.identity_secret)
+        .map_err(|_| CryptoError::InvalidKeyData)?;
+    let signing_secret = base64::engine::general_purpose::STANDARD.decode(&private_keys.signing_secret)
+        .map_err(|_| CryptoError::InvalidKeyData)?;
+    let prekey_secret = base64::engine::general_purpose::STANDARD.decode(&private_keys.signed_prekey_secret)
+        .map_err(|_| CryptoError::InvalidKeyData)?;
+    let prekey_signature = base64::engine::general_purpose::STANDARD.decode(&private_keys.prekey_signature)
+        .map_err(|_| CryptoError::InvalidKeyData)?;
+
+    // Create client from keys
+    let client = ClassicClient::<ClassicSuiteProvider>::from_keys(
+        identity_secret,
+        signing_secret,
+        prekey_secret,
+        prekey_signature,
+    ).map_err(|_| CryptoError::InitializationFailed)?;
+
+    eprintln!("✅ CryptoCore restored from saved keys");
 
     Ok(Arc::new(ClassicCryptoCore {
         inner: Mutex::new(client),

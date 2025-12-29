@@ -117,6 +117,25 @@ where
         })
     }
 
+    /// Создать Client с существующими ключами (для восстановления из storage)
+    pub fn from_keys(
+        identity_secret: Vec<u8>,
+        signing_secret: Vec<u8>,
+        prekey_secret: Vec<u8>,
+        prekey_signature: Vec<u8>,
+    ) -> Result<Self, String> {
+        let mut key_manager = KeyManager::<P>::new();
+        key_manager
+            .initialize_from_keys(identity_secret, signing_secret, prekey_secret, prekey_signature)
+            .map_err(|e| format!("Failed to initialize key manager from keys: {:?}", e))?;
+
+        Ok(Self {
+            key_manager,
+            sessions: HashMap::new(),
+            _phantom: PhantomData,
+        })
+    }
+
     /// Получить registration bundle для отправки на сервер
     ///
     /// Возвращает публичные ключи клиента для регистрации:

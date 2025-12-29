@@ -59,6 +59,11 @@ impl CryptoProvider for ClassicSuiteProvider {
         bytes
     }
 
+    fn signature_private_key_from_bytes(bytes: Vec<u8>) -> Self::SignaturePrivateKey {
+        // For ClassicSuiteProvider, SignaturePrivateKey is Vec<u8>, so just return it
+        bytes
+    }
+
     fn generate_signature_keys(
     ) -> Result<(Self::SignaturePrivateKey, Self::SignaturePublicKey), CryptoError> {
         let signing_key = SigningKey::generate(&mut OsRng);

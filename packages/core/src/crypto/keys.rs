@@ -100,6 +100,40 @@ impl<P: CryptoProvider> KeyManager<P> {
         Ok(())
     }
 
+    /// Инициализировать с существующими ключами (для восстановления из storage)
+    pub fn initialize_from_keys(
+        &mut self,
+        identity_secret_bytes: Vec<u8>,
+        signing_secret_bytes: Vec<u8>,
+        prekey_secret_bytes: Vec<u8>,
+        prekey_signature: Vec<u8>,
+    ) -> Result<()> {
+        // Создать ключи из байтов
+        let identity_secret = P::kem_private_key_from_bytes(identity_secret_bytes);
+        let identity_public = P::from_private_key_to_public_key(&identity_secret)
+            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive public key: {:?}", e)))?;
+
+        let signing_secret = P::signature_private_key_from_bytes(signing_secret_bytes);
+        let signing_public = P::from_signature_private_to_public(&signing_secret)
+            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive verifying key: {:?}", e)))?;
+
+        let prekey_secret = P::kem_private_key_from_bytes(prekey_secret_bytes);
+        let prekey_public = P::from_private_key_to_public_key(&prekey_secret)
+            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive prekey public: {:?}", e)))?;
+
+        // Сохранить ключи
+        self.identity_key = Some((identity_secret, identity_public));
+        self.signing_key = Some((signing_secret, signing_public));
+        self.current_signed_prekey = Some(PrekeyStore {
+            key_pair: (prekey_secret, prekey_public),
+            signature: prekey_signature,
+            created_at: 0,  // Не важно для восстановленных ключей
+            key_id: 1,
+        });
+
+        Ok(())
+    }
+
     /// Получить identity public key
     pub fn identity_public_key(&self) -> Result<&P::KemPublicKey> {
         self.identity_key

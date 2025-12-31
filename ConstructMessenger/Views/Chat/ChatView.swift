@@ -47,6 +47,9 @@ struct ChatView: View {
                                     },
                                     onReply: { msg in
                                         replyingTo = msg
+                                    },
+                                    onDelete: { msg in
+                                        deleteMessage(msg)
                                     }
                                 )
                                 .id(message.id)
@@ -97,6 +100,17 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
             }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func deleteMessage(_ message: Message) {
+        viewContext.delete(message)
+        do {
+            try viewContext.save()
+        } catch {
+            print("Failed to delete message: \(error)")
         }
     }
 

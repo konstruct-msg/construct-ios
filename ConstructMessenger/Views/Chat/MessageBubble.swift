@@ -12,12 +12,22 @@ struct MessageBubble: View {
     let isLastInGroup: Bool
     let onRetry: ((Message) -> Void)?
     let onReply: ((Message) -> Void)?
+    let onDelete: ((Message) -> Void)?
 
-    init(message: Message, isLastInGroup: Bool = true, onRetry: ((Message) -> Void)? = nil, onReply: ((Message) -> Void)? = nil) {
+    @State private var showMessageInfo = false
+
+    init(
+        message: Message,
+        isLastInGroup: Bool = true,
+        onRetry: ((Message) -> Void)? = nil,
+        onReply: ((Message) -> Void)? = nil,
+        onDelete: ((Message) -> Void)? = nil
+    ) {
         self.message = message
         self.isLastInGroup = isLastInGroup
         self.onRetry = onRetry
         self.onReply = onReply
+        self.onDelete = onDelete
     }
 
     var body: some View {
@@ -76,12 +86,7 @@ struct MessageBubble: View {
             }
         }
         .contextMenu {
-            Button {
-                UIPasteboard.general.string = message.decryptedContent
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-
+            // Reply - только для чужих сообщений или если есть callback
             if let onReply = onReply {
                 Button {
                     onReply(message)
@@ -89,6 +94,44 @@ struct MessageBubble: View {
                     Label("Reply", systemImage: "arrowshape.turn.up.left")
                 }
             }
+
+            // Copy text
+            Button {
+                UIPasteboard.general.string = message.decryptedContent
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+
+            // Message info
+            Button {
+                showMessageInfo = true
+            } label: {
+                Label("Info", systemImage: "info.circle")
+            }
+
+            Divider()
+
+            // Delete - только для своих сообщений
+            if message.isSentByMe, let onDelete = onDelete {
+                Button(role: .destructive) {
+                    onDelete(message)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+
+            // Retry - только для failed/queued сообщений
+            if (message.deliveryStatus == .failed || message.deliveryStatus == .queued),
+               let onRetry = onRetry {
+                Button {
+                    onRetry(message)
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+        }
+        .sheet(isPresented: $showMessageInfo) {
+            MessageInfoSheet(message: message)
         }
     }
 

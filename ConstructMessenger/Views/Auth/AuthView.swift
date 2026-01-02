@@ -16,7 +16,7 @@ struct AuthView: View {
        
                 VStack(spacing: 20) {
                     
-                    Text("Construct Messenger")
+                    Text("construct_messenger")
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .padding(.top, 30)
@@ -45,7 +45,7 @@ struct AuthView: View {
                             showingRegister.toggle()
                         }
                     } label: {
-                        Text(showingRegister ? "Back to Login" : "Register")
+                        Text(showingRegister ? "back_to_login" : "register")
                             .foregroundColor(.blue)
                     }
 

@@ -24,7 +24,7 @@ class SettingsViewModel: ObservableObject {
     }
 
     func loadUserInfo(from authViewModel: AuthViewModel) {
-        guard let context = viewContext else { return }
+        guard let _ = viewContext else { return }
 
         userId = authViewModel.currentUserId ?? SessionManager.shared.currentUserId ?? ""
         username = authViewModel.currentUsername ?? ""

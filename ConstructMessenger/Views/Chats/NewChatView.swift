@@ -31,11 +31,11 @@ struct NewChatView: View {
                         .font(.system(size: 80))
                         .foregroundColor(.blue)
 
-                    Text("Add Contact")
+                    Text("add_contact")
                         .font(.title2)
                         .fontWeight(.semibold)
 
-                    Text("Scan a QR code or share your contact link to add verified contacts")
+                    Text("scan_qr_code_or_share_link")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -48,7 +48,7 @@ struct NewChatView: View {
                     } label: {
                         HStack {
                             Image(systemName: "qrcode.viewfinder")
-                            Text("Scan QR Code")
+                            Text("scan_qr_code")
                                 .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity)
@@ -59,18 +59,18 @@ struct NewChatView: View {
                     }
                     .padding(.horizontal, 32)
 
-                    Text("Your contact link is in Account Settings")
+                    Text("your_contact_link_is_in_account_settings")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 Spacer()
             }
-            .navigationTitle("New Contact")
+            .navigationTitle("new_contact")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button("cancel") {
                         dismiss()
                     }
                 }

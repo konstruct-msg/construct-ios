@@ -15,12 +15,12 @@ struct MainTabView: View {
         TabView {
             ChatsListView()
                 .tabItem {
-                    Label("Chats", systemImage: "message")
+                    Label("chats", systemImage: "message")
                 }
 
             SettingsView()
                 .tabItem {
-                    Label("Settings", systemImage: "gear")
+                    Label("settings", systemImage: "gear")
                 }
         }
     }

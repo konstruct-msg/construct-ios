@@ -23,7 +23,7 @@ struct ContactQRCodeView: View {
                 Spacer()
 
                 VStack(spacing: 24) {
-                    Text("My QR Code")
+                    Text("my_qr_code")
                         .font(.title2)
                         .fontWeight(.semibold)
 
@@ -44,7 +44,7 @@ struct ContactQRCodeView: View {
                             .frame(width: 250, height: 250)
                             .cornerRadius(16)
                             .overlay {
-                                Text("Failed to generate QR code")
+                                Text("failed_to_generate_qr_code")
                                     .foregroundColor(.secondary)
                             }
                     }
@@ -54,7 +54,7 @@ struct ContactQRCodeView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("Show this code to someone nearby")
+                        Text("show_this_code_to_someone_nearby")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -65,7 +65,7 @@ struct ContactQRCodeView: View {
                 Spacer()
 
                 // Hint text
-                Text("They can scan this with their camera or take a screenshot")
+                Text("scan_with_camera_or_screenshot")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -75,7 +75,7 @@ struct ContactQRCodeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
+                    Button("done") {
                         dismiss()
                     }
                 }

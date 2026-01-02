@@ -332,6 +332,12 @@ class ChatViewModel: ObservableObject {
 
                 self.recipientBundle = (data.identityPublic, data.signedPrekeyPublic, data.signature, data.verifyingKey)
                 guard let currentUserId = SessionManager.shared.currentUserId else { return }
+                
+                // ✅ FIX: Proactively delete any stale session before starting a new one.
+                // This handles cases where a session exists in the Rust core but not in the Swift
+                // session mapping, or any other conflict, preventing initialization failures.
+                CryptoManager.shared.deleteSession(for: data.userId)
+                Log.info("🗑️ Proactively deleted any existing session for \(data.userId) before initialization.", category: "ChatViewModel")
 
                 // ✅ FIX: If we requested the keys, WE are the initiator
                 // The fact that we're in ChatViewModel and requested getPublicKey

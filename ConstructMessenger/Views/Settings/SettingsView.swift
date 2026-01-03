@@ -36,7 +36,13 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
+
+                // TODO: Add Security Section here
+                // - PIN code protection (6-10 digits)
+                // - Biometric authentication (Face ID / Touch ID)
+                // - Auto-lock timeout settings
+                // See: TODO.md for detailed requirements
+
                 // MARK: - Share Contact Section
                 Section {
                     Button {

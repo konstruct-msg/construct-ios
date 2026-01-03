@@ -447,6 +447,7 @@ class ChatViewModel: ObservableObject {
             newMessage.timestamp = Date(timeIntervalSince1970: TimeInterval(message.timestamp))
             newMessage.isSentByMe = isSentByMe
             newMessage.deliveryStatus = status
+            newMessage.retryCount = 0  // ✅ FIX: Initialize required field
             newMessage.chat = chat
 
             // Set reply information

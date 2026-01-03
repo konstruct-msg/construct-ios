@@ -21,12 +21,27 @@ struct Construct_MessengerApp: App {
     }()
 
     @StateObject private var authViewModel = AuthViewModel(context: Construct_MessengerApp.persistentContainer.viewContext)
+    // TODO: Add PIN code security state management
+    // @StateObject private var securityViewModel = SecurityViewModel()
+    // See: TODO.md for detailed requirements
 
     var body: some Scene {
         WindowGroup {
+            // TODO: Wrap ContentView with PIN lock screen when security is enabled
+            // Example:
+            // if securityViewModel.isPinEnabled && !securityViewModel.isUnlocked {
+            //     PinCodeView()
+            //         .environmentObject(securityViewModel)
+            // } else {
+            //     ContentView()
+            //         .environment(\.managedObjectContext, ...)
+            //         .environmentObject(authViewModel)
+            // }
             ContentView()
                 .environment(\.managedObjectContext, Construct_MessengerApp.persistentContainer.viewContext)
                 .environmentObject(authViewModel)
+                // TODO: Add environment object for security
+                // .environmentObject(securityViewModel)
         }
     }
 }

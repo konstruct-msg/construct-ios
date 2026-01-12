@@ -3,6 +3,7 @@ use crate::crypto::handshake::x3dh::X3DHPublicKeyBundle;
 use crate::crypto::messaging::double_ratchet::EncryptedRatchetMessage;
 use crate::crypto::provider::CryptoProvider;
 use crate::crypto::suites::classic::ClassicSuiteProvider;
+use crate::crypto::SuiteID;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -137,7 +138,7 @@ impl ClassicCryptoCore {
             signed_prekey_public: base64::engine::general_purpose::STANDARD.encode(&bundle.signed_prekey_public),
             signature: base64::engine::general_purpose::STANDARD.encode(&bundle.signature),
             verifying_key: base64::engine::general_purpose::STANDARD.encode(&bundle.verifying_key),
-            suite_id: bundle.suite_id.to_string(),
+            suite_id: bundle.suite_id.as_u16().to_string(),
         };
 
         serde_json::to_string(&json_bundle)
@@ -279,7 +280,8 @@ impl ClassicCryptoCore {
             signed_prekey_public: key_bundle.signed_prekey_public.clone(),
             signature: key_bundle.signature.clone(),
             verifying_key: key_bundle.verifying_key.clone(),
-            suite_id: key_bundle.suite_id,
+            suite_id: SuiteID::new(key_bundle.suite_id)
+                .map_err(|_| CryptoError::InvalidKeyData)?,
         };
 
         // Extract remote identity public key
@@ -297,26 +299,28 @@ impl ClassicCryptoCore {
         // Log local keys for debugging (sender side)
         let local_bundle = client.key_manager().export_registration_bundle()
             .map_err(|_| CryptoError::InitializationFailed)?;
-        eprintln!("🔑 Bob (sender) local keys during init_session:");
-        eprintln!("   Local identity (hex): {}", hex::encode(&local_bundle.identity_public));
-        eprintln!("   Remote identity (hex): {}", hex::encode(&key_bundle.identity_public));
-
-        // Log bundle details before initialization
-        eprintln!("📦 Bundle details before init_session:");
-        eprintln!("   Remote identity (hex): {}", hex::encode(&key_bundle.identity_public));
-        eprintln!("   Remote signed prekey (hex): {}", hex::encode(&key_bundle.signed_prekey_public));
-        eprintln!("   Remote verifying key (hex): {}", hex::encode(&key_bundle.verifying_key));
-        eprintln!("   Signature (hex): {}", hex::encode(&key_bundle.signature));
-        eprintln!("   Suite ID: {}", key_bundle.suite_id);
         
+        tracing::debug!(
+            target: "crypto::uniffi",
+            contact_id = %contact_id,
+            local_identity_len = local_bundle.identity_public.len(),
+            remote_identity_len = key_bundle.identity_public.len(),
+            remote_signed_prekey_len = key_bundle.signed_prekey_public.len(),
+            verifying_key_len = key_bundle.verifying_key.len(),
+            signature_len = key_bundle.signature.len(),
+            suite_id = key_bundle.suite_id,
+            "Initializing session (sender side)"
+        );
+
         // Initialize the session (returns internal session_id which we ignore)
         client.init_session(&contact_id, &public_bundle, &remote_identity)
             .map_err(|e| {
-                // Log detailed error for debugging
-                eprintln!("❌ RUST ERROR: init_session failed: {}", e);
-                eprintln!("   Contact ID: {}", contact_id);
-                eprintln!("   Error details: {:?}", e);
-                tracing::error!("init_session failed: {:?}", e);
+                tracing::error!(
+                    target: "crypto::uniffi",
+                    contact_id = %contact_id,
+                    error = %e,
+                    "init_session failed"
+                );
                 CryptoError::SessionInitializationFailed
             })?;
 
@@ -415,9 +419,17 @@ impl ClassicCryptoCore {
         // Log local keys for debugging
         let local_bundle = client.key_manager().export_registration_bundle()
             .map_err(|_| CryptoError::InitializationFailed)?;
-        eprintln!("🔑 Alice (receiver) local keys:");
-        eprintln!("   Local identity (hex): {}", hex::encode(&local_bundle.identity_public));
-        eprintln!("   Local signed prekey (hex): {}", hex::encode(&local_bundle.signed_prekey_public));
+        
+        tracing::debug!(
+            target: "crypto::uniffi",
+            contact_id = %contact_id,
+            local_identity_len = local_bundle.identity_public.len(),
+            local_signed_prekey_len = local_bundle.signed_prekey_public.len(),
+            remote_identity_len = key_bundle.identity_public.len(),
+            remote_ephemeral_len = first_msg.ephemeral_public_key.len(),
+            message_number = first_msg.message_number,
+            "Initializing receiving session (receiver side)"
+        );
 
         let (_internal_session_id, plaintext_bytes) = client.init_receiving_session_with_ephemeral(
             &contact_id,
@@ -426,13 +438,15 @@ impl ClassicCryptoCore {
             &encrypted_first_message,
         )
         .map_err(|e| {
-            // Use eprintln! to ensure error is visible even if tracing is not initialized
-            eprintln!("❌ RUST ERROR: init_receiving_session_with_ephemeral failed: {}", e);
-            eprintln!("   Contact ID: {}", contact_id);
-            eprintln!("   Remote identity (hex): {}", hex::encode(&key_bundle.identity_public));
-            eprintln!("   Remote ephemeral (hex): {}", hex::encode(&first_msg.ephemeral_public_key));
-            eprintln!("   Message number: {}", first_msg.message_number);
-            tracing::error!("init_receiving_session_with_ephemeral failed: {:?}", e);
+            tracing::error!(
+                target: "crypto::uniffi",
+                contact_id = %contact_id,
+                error = %e,
+                remote_identity_len = key_bundle.identity_public.len(),
+                remote_ephemeral_len = first_msg.ephemeral_public_key.len(),
+                message_number = first_msg.message_number,
+                "init_receiving_session_with_ephemeral failed"
+            );
             CryptoError::SessionInitializationFailed
         })?;
 
@@ -581,7 +595,7 @@ pub fn create_crypto_core_from_keys_json(keys_json: String) -> Result<Arc<Classi
         prekey_signature,
     ).map_err(|_| CryptoError::InitializationFailed)?;
 
-    eprintln!("✅ CryptoCore restored from saved keys");
+    tracing::debug!(target: "crypto::uniffi", "CryptoCore restored from saved keys");
 
     Ok(Arc::new(ClassicCryptoCore {
         inner: Mutex::new(client),

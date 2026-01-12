@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 /// Prologue включает протокол и suite ID для предотвращения key substitution attacks
 fn build_prologue(suite_id: SuiteID) -> Vec<u8> {
     let protocol_name = b"X3DH";
-    let suite_id_bytes = suite_id.to_le_bytes();
+    let suite_id_bytes = suite_id.as_u16().to_le_bytes();
     let mut prologue = Vec::with_capacity(protocol_name.len() + suite_id_bytes.len());
     prologue.extend_from_slice(protocol_name);
     prologue.extend_from_slice(&suite_id_bytes);
@@ -106,8 +106,8 @@ impl<P: CryptoProvider> KeyManager<P> {
 
     /// Инициализировать с новыми ключами
     pub fn initialize(&mut self) -> Result<()> {
-        self.identity_key = Some(P::generate_kem_keys().map_err(|e| ConstructError::CryptoError(e.to_string()))?);
-        self.signing_key = Some(P::generate_signature_keys().map_err(|e| ConstructError::CryptoError(e.to_string()))?);
+        self.identity_key = Some(P::generate_kem_keys().map_err(ConstructError::Crypto)?);
+        self.signing_key = Some(P::generate_signature_keys().map_err(ConstructError::Crypto)?);
         self.rotate_signed_prekey()?;
         Ok(())
     }
@@ -123,15 +123,15 @@ impl<P: CryptoProvider> KeyManager<P> {
         // Создать ключи из байтов
         let identity_secret = P::kem_private_key_from_bytes(identity_secret_bytes);
         let identity_public = P::from_private_key_to_public_key(&identity_secret)
-            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive public key: {:?}", e)))?;
+            .map_err(ConstructError::Crypto)?;
 
         let signing_secret = P::signature_private_key_from_bytes(signing_secret_bytes);
         let signing_public = P::from_signature_private_to_public(&signing_secret)
-            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive verifying key: {:?}", e)))?;
+            .map_err(ConstructError::Crypto)?;
 
         let prekey_secret = P::kem_private_key_from_bytes(prekey_secret_bytes);
         let prekey_public = P::from_private_key_to_public_key(&prekey_secret)
-            .map_err(|e| ConstructError::CryptoError(format!("Failed to derive prekey public: {:?}", e)))?;
+            .map_err(ConstructError::Crypto)?;
 
         // Сохранить ключи
         self.identity_key = Some((identity_secret, identity_public));
@@ -151,7 +151,7 @@ impl<P: CryptoProvider> KeyManager<P> {
         self.identity_key
             .as_ref()
             .map(|k| &k.1)
-            .ok_or_else(|| ConstructError::CryptoError("Identity key not initialized".to_string()))
+            .ok_or_else(|| ConstructError::Crypto(crate::error::CryptoError::Other("Identity key not initialized".to_string())))
     }
 
     /// Получить identity secret key
@@ -159,7 +159,7 @@ impl<P: CryptoProvider> KeyManager<P> {
         self.identity_key
             .as_ref()
             .map(|k| &k.0)
-            .ok_or_else(|| ConstructError::CryptoError("Identity key not initialized".to_string()))
+            .ok_or_else(|| ConstructError::Crypto(crate::error::CryptoError::Other("Identity key not initialized".to_string())))
     }
 
     /// Получить verifying key
@@ -167,32 +167,33 @@ impl<P: CryptoProvider> KeyManager<P> {
         self.signing_key
             .as_ref()
             .map(|k| &k.1)
-            .ok_or_else(|| ConstructError::CryptoError("Signing key not initialized".to_string()))
+            .ok_or_else(|| ConstructError::Crypto(crate::error::CryptoError::Other("Signing key not initialized".to_string())))
     }
 
     /// Получить текущий signed prekey
     pub fn current_signed_prekey(&self) -> Result<&PrekeyStore<P>> {
         self.current_signed_prekey
             .as_ref()
-            .ok_or_else(|| ConstructError::CryptoError("No signed prekey available".to_string()))
+            .ok_or_else(|| ConstructError::Crypto(crate::error::CryptoError::Other("No signed prekey available".to_string())))
     }
 
     /// Ротация signed prekey
     pub fn rotate_signed_prekey(&mut self) -> Result<()> {
         let (signing_key, _) = self.signing_key.as_ref().ok_or_else(|| {
-            ConstructError::CryptoError("Signing key not initialized".to_string())
+            ConstructError::Crypto(crate::error::CryptoError::Other("Signing key not initialized".to_string()))
         })?;
 
         // Генерируем новый prekey
-        let key_pair = P::generate_kem_keys().map_err(|e| ConstructError::CryptoError(e.to_string()))?;
+        let key_pair = P::generate_kem_keys().map_err(ConstructError::Crypto)?;
         
         // Подписываем signed prekey с prologue (как в Noise Protocol)
         // Prologue включает протокол и suite ID для предотвращения key substitution attacks
-        let prologue = build_prologue(P::suite_id());
+        let suite_id = SuiteID::from_u16_unchecked(P::suite_id()); // Provider гарантирует валидный suite_id
+        let prologue = build_prologue(suite_id);
         let mut message_to_sign = Vec::with_capacity(prologue.len() + key_pair.1.as_ref().len());
         message_to_sign.extend_from_slice(&prologue);
         message_to_sign.extend_from_slice(key_pair.1.as_ref());
-        let signature = P::sign(signing_key, &message_to_sign).map_err(|e| ConstructError::CryptoError(e.to_string()))?;
+        let signature = P::sign(signing_key, &message_to_sign).map_err(ConstructError::Crypto)?;
 
         let key_id = self.next_prekey_id;
         self.next_prekey_id += 1;
@@ -285,7 +286,7 @@ impl<P: CryptoProvider> KeyManager<P> {
             signed_prekey_public: prekey.key_pair.1.as_ref().to_vec(),
             signature: prekey.signature.clone(),
             verifying_key,
-            suite_id: P::suite_id(),
+            suite_id: SuiteID::from_u16_unchecked(P::suite_id()), // Provider гарантирует валидный suite_id
         })
     }
 
@@ -300,17 +301,17 @@ impl<P: CryptoProvider> KeyManager<P> {
             signed_prekey_public: prekey.key_pair.1.as_ref().to_vec(),
             signature: prekey.signature.clone(),
             verifying_key,
-            suite_id: P::suite_id(),
+            suite_id: SuiteID::from_u16_unchecked(P::suite_id()), // Provider гарантирует валидный suite_id
         })
     }
 
     /// Подписать данные
     pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         let (signing_key, _) = self.signing_key.as_ref().ok_or_else(|| {
-            ConstructError::CryptoError("Signing key not initialized".to_string())
+            ConstructError::Crypto(crate::error::CryptoError::Other("Signing key not initialized".to_string()))
         })?;
 
-        P::sign(signing_key, data).map_err(|e| ConstructError::CryptoError(e.to_string()))
+        P::sign(signing_key, data).map_err(ConstructError::Crypto)
     }
 
     /// Количество сохраненных старых prekeys
@@ -323,7 +324,7 @@ impl<P: CryptoProvider> KeyManager<P> {
         self.signing_key
             .as_ref()
             .map(|k| &k.0)
-            .ok_or_else(|| ConstructError::CryptoError("Signing key not initialized".to_string()))
+            .ok_or_else(|| ConstructError::Crypto(crate::error::CryptoError::Other("Signing key not initialized".to_string())))
     }
 }
 

@@ -168,7 +168,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
             .map_err(|e| format!("KDF_RK failed: {}", e))?;
 
         Ok(Self {
-            suite_id: Config::global().classic_suite_id,
+            suite_id: SuiteID::from_u16_unchecked(Config::global().classic_suite_id),
             root_key,
             sending_chain_key: chain_key,
             sending_chain_length: 0,
@@ -246,8 +246,12 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
         let (final_root_key, sending_chain) =
             P::kdf_rk(&root_key_val, &dh_output2).map_err(|e| format!("KDF_RK failed: {}", e))?;
 
+        // Валидация suite_id из первого сообщения
+        let suite_id = SuiteID::new(first_message.suite_id)
+            .map_err(|e| format!("Invalid suite_id in first message: {}", e))?;
+
         let mut session = Self {
-            suite_id: first_message.suite_id,
+            suite_id,
             root_key: final_root_key,
             sending_chain_key: sending_chain,
             sending_chain_length: 0,
@@ -341,7 +345,7 @@ impl<P: CryptoProvider> SecureMessaging<P> for DoubleRatchetSession<P> {
             ciphertext,
             nonce,
             previous_chain_length: self.previous_sending_length,
-            suite_id: self.suite_id,
+            suite_id: self.suite_id.as_u16(),
         })
     }
 
@@ -597,7 +601,7 @@ impl<P: CryptoProvider> DoubleRatchetSession<P> {
     pub fn to_serializable(&self) -> SerializableSession {
         SerializableSession {
             version: 1,  // Current protocol version
-            suite_id: self.suite_id,
+            suite_id: self.suite_id.as_u16(),
             root_key: self.root_key.as_ref().to_vec(),
             sending_chain_key: self.sending_chain_key.as_ref().to_vec(),
             sending_chain_length: self.sending_chain_length,
@@ -628,8 +632,12 @@ impl<P: CryptoProvider> DoubleRatchetSession<P> {
             return Err(format!("Unsupported session version: {}. Expected version 1.", data.version));
         }
 
+        // Валидация suite_id при десериализации
+        let suite_id = SuiteID::new(data.suite_id)
+            .map_err(|e| format!("Invalid suite_id in serialized session: {}", e))?;
+
         Ok(Self {
-            suite_id: data.suite_id,
+            suite_id,
             root_key: Self::bytes_to_aead_key(&data.root_key)?,
             sending_chain_key: Self::bytes_to_aead_key(&data.sending_chain_key)?,
             sending_chain_length: data.sending_chain_length,

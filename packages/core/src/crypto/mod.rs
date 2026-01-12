@@ -115,9 +115,12 @@ pub mod pq_double_ratchet;
 
 pub use provider::CryptoProvider;
 
-pub type SuiteID = u16;
+// Suite ID with validation
+pub mod suite_id;
+pub use suite_id::{InvalidSuiteId, SuiteID};
 
+// Backward compatibility constants
 /// Suite ID for the classic suite
-pub const CLASSIC_SUITE_ID: SuiteID = 1;
+pub const CLASSIC_SUITE_ID: u16 = 1;
 /// Suite ID for Post-Quantum hybrid suite (reserved)
-pub const PQ_HYBRID_SUITE_ID: SuiteID = 2;
+pub const PQ_HYBRID_SUITE_ID: u16 = 2;

@@ -65,7 +65,7 @@ impl PrivateKeys {
 /// 256-битный ключ для AES-256-GCM
 pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LENGTH]>> {
     if salt.len() != Config::global().salt_length {
-        return Err(ConstructError::CryptoError(format!(
+        return Err(ConstructError::ValidationError(format!(
             "Invalid salt length: expected {}, got {}",
             Config::global().salt_length,
             salt.len()
@@ -73,7 +73,7 @@ pub fn derive_master_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; K
     }
 
     if password.is_empty() {
-        return Err(ConstructError::CryptoError(
+        return Err(ConstructError::ValidationError(
             "Password cannot be empty".to_string(),
         ));
     }
@@ -172,7 +172,7 @@ fn encrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Vec<u8>> {
     // Шифруем
     let ciphertext = cipher
         .encrypt(nonce, data)
-        .map_err(|e| ConstructError::CryptoError(format!("Encryption failed: {}", e)))?;
+        .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::AeadEncryptionError(e.to_string())))?;
 
     // Комбинируем nonce + ciphertext
     let mut result = Vec::with_capacity(nonce_length + ciphertext.len());
@@ -187,7 +187,7 @@ fn decrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     let nonce_length = Config::global().nonce_length;
 
     if data.len() < nonce_length {
-        return Err(ConstructError::CryptoError(
+        return Err(ConstructError::ValidationError(
             "Invalid ciphertext: too short".to_string(),
         ));
     }
@@ -199,7 +199,7 @@ fn decrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     // Расшифровываем
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| ConstructError::CryptoError(format!("Decryption failed: {}", e)))?;
+        .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::AeadDecryptionError(e.to_string())))?;
 
     Ok(Zeroizing::new(plaintext))
 }
@@ -207,7 +207,7 @@ fn decrypt_data(cipher: &Aes256Gcm, data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
 /// Конвертировать Vec<u8> в [u8; 32]
 fn to_array_32(vec: &[u8]) -> Result<[u8; 32]> {
     if vec.len() != 32 {
-        return Err(ConstructError::CryptoError(format!(
+        return Err(ConstructError::ValidationError(format!(
             "Invalid key length: expected 32, got {}",
             vec.len()
         )));

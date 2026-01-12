@@ -2,7 +2,7 @@ use crate::crypto::client_api::Client;
 use crate::crypto::handshake::x3dh::{X3DHProtocol, X3DHPublicKeyBundle};
 use crate::crypto::handshake::KeyAgreement;
 use crate::crypto::messaging::double_ratchet::DoubleRatchetSession;
-use crate::crypto::CryptoProvider;
+use crate::crypto::{CryptoProvider, SuiteID};
 use crate::utils::error::{ConstructError, Result};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -23,19 +23,31 @@ impl From<X3DHPublicKeyBundle> for KeyBundle {
             signed_prekey_public: bundle.signed_prekey_public,
             signature: bundle.signature,
             verifying_key: bundle.verifying_key,
-            suite_id: bundle.suite_id,
+            suite_id: bundle.suite_id.as_u16(),
         }
     }
 }
 
 impl From<KeyBundle> for X3DHPublicKeyBundle {
     fn from(bundle: KeyBundle) -> Self {
+        // Валидация suite_id при конвертации
+        let suite_id = SuiteID::new(bundle.suite_id)
+            .map_err(|e| format!("Invalid suite_id in KeyBundle: {}", e))
+            .unwrap_or_else(|_| {
+                // Fallback на CLASSIC если suite_id невалидный (для backward compatibility)
+                tracing::warn!(
+                    suite_id = bundle.suite_id,
+                    "Invalid suite_id in KeyBundle, falling back to CLASSIC"
+                );
+                SuiteID::CLASSIC
+            });
+        
         Self {
             identity_public: bundle.identity_public,
             signed_prekey_public: bundle.signed_prekey_public,
             signature: bundle.signature,
             verifying_key: bundle.verifying_key,
-            suite_id: bundle.suite_id,
+            suite_id,
         }
     }
 }
@@ -64,7 +76,7 @@ where
 {
     pub fn new() -> Result<Self> {
         let client = Client::<P, X3DHProtocol<P>, DoubleRatchetSession<P>>::new()
-            .map_err(ConstructError::CryptoError)?;
+            .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))?;
 
         Ok(Self {
             client,
@@ -85,7 +97,7 @@ where
             signed_prekey_public: base64::engine::general_purpose::STANDARD.encode(&bundle.signed_prekey_public),
             signature: base64::engine::general_purpose::STANDARD.encode(&bundle.signature),
             verifying_key: base64::engine::general_purpose::STANDARD.encode(&bundle.verifying_key),
-            suite_id: bundle.suite_id.to_string(),
+            suite_id: bundle.suite_id.as_u16().to_string(),
         })
     }
 
@@ -109,7 +121,8 @@ where
             signed_prekey_public: remote_bundle.signed_prekey_public.clone(),
             signature: remote_bundle.signature.clone(),
             verifying_key: remote_bundle.verifying_key.clone(),
-            suite_id: remote_bundle.suite_id,
+            suite_id: SuiteID::new(remote_bundle.suite_id)
+                .map_err(|e| ConstructError::ValidationError(format!("Invalid suite_id: {}", e)))?,
         };
 
         // Extract remote identity from bundle
@@ -120,7 +133,7 @@ where
 
         self.client
             .init_session(contact_id, public_bundle, &remote_identity)
-            .map_err(ConstructError::CryptoError)
+            .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))
     }
 
     pub fn init_receiving_session(
@@ -136,7 +149,7 @@ where
 
         self.client
             .init_receiving_session(contact_id, &remote_identity, first_message)
-            .map_err(ConstructError::CryptoError)
+            .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))
     }
 
     pub fn encrypt_message(
@@ -146,7 +159,7 @@ where
     ) -> Result<crate::crypto::messaging::double_ratchet::EncryptedRatchetMessage> {
         self.client
             .encrypt_message(contact_id, plaintext.as_bytes())
-            .map_err(ConstructError::CryptoError)
+            .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))
     }
 
     pub fn decrypt_message(
@@ -157,7 +170,7 @@ where
         let plaintext = self
             .client
             .decrypt_message(contact_id, message)
-            .map_err(ConstructError::CryptoError)?;
+            .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))?;
 
         String::from_utf8(plaintext)
             .map_err(|e| ConstructError::SerializationError(format!("Invalid UTF-8: {}", e)))
@@ -217,7 +230,7 @@ where
     <X3DHProtocol<P> as KeyAgreement<P>>::SharedSecret: AsRef<[u8]>,
 {
     Client::<P, X3DHProtocol<P>, DoubleRatchetSession<P>>::new()
-        .map_err(ConstructError::CryptoError)
+        .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))
 }
 
 pub fn get_registration_bundle<P: CryptoProvider>(
@@ -234,7 +247,7 @@ where
         signed_prekey_public: bundle.signed_prekey_public,
         signature: bundle.signature,
         verifying_key: bundle.verifying_key,
-        suite_id: bundle.suite_id,
+        suite_id: bundle.suite_id.as_u16(),
     })
 }
 

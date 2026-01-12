@@ -128,6 +128,37 @@ cargo run --release
 
 **Philosophy:** Hybrid = protection against quantum computers + protection against vulnerabilities in new algorithms
 
+### X3DH Prologue Format
+
+Для защиты от **key substitution attacks** (атак подмены ключей между разными криптографическими наборами), подпись `signed_prekey` включает **prologue** по аналогии с Noise Protocol.
+
+**Формат prologue:**
+```
+Prologue = "X3DH" (4 bytes) || suite_id (2 bytes, little-endian)
+```
+
+**Примеры:**
+- Suite ID 1 (CLASSIC): `[0x58, 0x33, 0x44, 0x48, 0x01, 0x00]` = `"X3DH" || 0x0001`
+- Suite ID 2 (PQ_HYBRID): `[0x58, 0x33, 0x44, 0x48, 0x02, 0x00]` = `"X3DH" || 0x0002`
+
+**Процесс подписания:**
+1. Клиент генерирует `signed_prekey_public`
+2. Создаёт prologue: `"X3DH" || suite_id`
+3. Подписывает: `sign(prologue || signed_prekey_public)`
+4. Отправляет bundle на сервер
+
+**Процесс проверки:**
+1. Клиент получает bundle с `suite_id`
+2. Строит prologue из `suite_id` из bundle
+3. Проверяет подпись: `verify(prologue || signed_prekey_public, signature)`
+4. **Backward compatibility:** Если новый формат не проходит, пробует старый (без prologue)
+
+**Важно для сервера:**
+- Сервер **НЕ** должен знать о prologue
+- Сервер работает только с непрозрачными данными (opaque blobs)
+- Сервер **НЕ** проверяет подпись (это делает клиент)
+- Сервер должен хранить `suite_id` для логирования/статистики
+
 ---
 
 ## 🛠️ Project Structure

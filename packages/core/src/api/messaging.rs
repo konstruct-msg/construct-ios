@@ -4,7 +4,7 @@ use crate::crypto::client_api::Client;
 use crate::crypto::handshake::x3dh::X3DHProtocol;
 use crate::crypto::handshake::KeyAgreement;
 use crate::crypto::messaging::double_ratchet::{DoubleRatchetSession, EncryptedRatchetMessage};
-use crate::crypto::CryptoProvider;
+use crate::crypto::{CryptoProvider, SuiteID};
 use crate::utils::error::{ConstructError, Result};
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +57,7 @@ where
 {
     let encrypted = client
         .encrypt_message(contact_id, plaintext.as_bytes())
-        .map_err(ConstructError::CryptoError)?;
+        .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))?;
 
     let mut msg: EncryptedMessage = encrypted.into();
     msg.session_id = contact_id.to_string();
@@ -78,7 +78,7 @@ where
 
     let plaintext = client
         .decrypt_message(contact_id, &ratchet_msg)
-        .map_err(ConstructError::CryptoError)?;
+        .map_err(|e| ConstructError::Crypto(crate::error::CryptoError::Other(e)))?;
 
     String::from_utf8(plaintext)
         .map_err(|e| ConstructError::SerializationError(format!("Invalid UTF-8: {}", e)))
@@ -101,7 +101,8 @@ where
         signed_prekey_public: remote_bundle.signed_prekey_public.clone(),
         signature: remote_bundle.signature.clone(),
         verifying_key: remote_bundle.verifying_key.clone(),
-        suite_id: remote_bundle.suite_id,
+        suite_id: SuiteID::new(remote_bundle.suite_id)
+            .map_err(|e| ConstructError::ValidationError(format!("Invalid suite_id: {}", e)))?,
     };
 
     let remote_identity = P::kem_public_key_from_bytes(bundle_data.identity_public.clone());

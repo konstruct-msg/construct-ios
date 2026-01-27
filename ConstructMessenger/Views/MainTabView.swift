@@ -38,10 +38,7 @@ struct MainTabView: View {
     }
     
     let authViewModel = AuthViewModel(context: context)
-    authViewModel.isAuthenticated = true
-    authViewModel.currentUserId = "me"
-    authViewModel.currentUsername = "john_doe"
-    authViewModel.currentDisplayName = "John Doe"
+    authViewModel.configureMockAuth()  // ✅ REFACTOR Phase 1.2
     
     let chatsViewModel = ChatsViewModel()
     chatsViewModel.setContext(context)

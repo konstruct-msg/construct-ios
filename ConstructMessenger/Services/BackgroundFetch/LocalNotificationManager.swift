@@ -202,14 +202,27 @@ class LocalNotificationManager: NSObject {
 
     /// Update app badge number
     func updateBadge(_ count: Int) {
-        DispatchQueue.main.async {
-            UIApplication.shared.applicationIconBadgeNumber = count
+        Task { @MainActor in
+            // iOS 16+ uses UNUserNotificationCenter.setBadgeCount
+            if #available(iOS 16.0, *) {
+                try? await UNUserNotificationCenter.current().setBadgeCount(count)
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = count
+            }
+            Log.debug("📛 Badge updated to \(count)", category: "LocalNotifications")
         }
     }
 
     /// Clear app badge
     func clearBadge() {
-        updateBadge(0)
+        Task { @MainActor in
+            if #available(iOS 16.0, *) {
+                try? await UNUserNotificationCenter.current().setBadgeCount(0)
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = 0
+            }
+            Log.debug("📛 Badge cleared", category: "LocalNotifications")
+        }
     }
 
     // MARK: - Notification Management

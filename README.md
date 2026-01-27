@@ -216,18 +216,37 @@ We welcome contributions! Please familiarize yourself with:
 - [x] WebSocket server with PostgreSQL
 - [x] Basic UI (SwiftUI)
 - [x] Core Data persistence
+- [x] Reactive architecture with Combine (Phase 2)
 
 
 ### 📅 Planned
+**Q1 2026:**
+- [ ] **Offline Message Queue** - Retry failed messages with exponential backoff
+- [ ] **APNs Push Notifications** - 98% reduction in network requests, massive battery savings
+- [ ] **State Machine Architecture** (Phase 3) - See [docs/architecture/state-machine-migration.md](docs/architecture/state-machine-migration.md)
+  - Explicit state modeling for auth and polling
+  - Offline mode support
+  - Reconnection with exponential backoff
+  - Better error handling and debugging
+
 **Q2 2026:**
+- [ ] **Privacy & Traffic Obfuscation** - See [docs/architecture/improvement-roadmap.md](docs/architecture/improvement-roadmap.md)
+  - Message size padding
+  - Timing obfuscation
+  - Dummy traffic (opt-in)
 - [ ] Post-quantum hybrid cryptography (Kyber768 + Dilithium3)
 - [ ] Web PWA
 - [ ] Group messaging (Sender Keys)
 - [ ] Voice/Video calls (WebRTC)
+
+**Q3 2026:**
 - [ ] **Server Federation** (Email 2.0 with E2E encryption)
 - [ ] Decentralized architecture (alice@server1.com ↔ bob@server2.com)
 - [ ] DNS-based server discovery
 - [ ] Sealed sender for metadata privacy
+
+**Future Considerations:**
+- [ ] WebSocket support (opt-in, beta) - See roadmap for scaling strategy
 
 ---
 

@@ -136,6 +136,9 @@ struct ChatView: View {
                     shouldScrollToBottom = true
                     hasScrolledToBottom = false
                     
+                    // ✅ Clear badge when user opens a chat
+                    LocalNotificationManager.shared.clearBadge()
+                    
                     // Scroll to bottom when view appears if we have messages
                     if !viewModel.messages.isEmpty {
                         DispatchQueue.main.async {
@@ -425,6 +428,8 @@ struct ChatView: View {
 
     /// Determines if a message is the last in a group of consecutive messages from the same sender
     private func isLastInGroup(_ message: Message, at index: Int, in messages: [Message]) -> Bool {
+        // ✅ REFACTOR: No more defensive checks needed - FRC ensures valid messages only
+        
         // If this is the last message, it's always the last in its group
         guard index < messages.count - 1 else {
             return true

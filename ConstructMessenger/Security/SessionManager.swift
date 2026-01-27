@@ -101,5 +101,6 @@ class SessionManager: ObservableObject {
         
         // ✅ REACTIVE: Clear published property to trigger subscribers
         self.sessionToken = nil
+        // Note: We keep currentUserId so user data persists in Core Data
     }
 }

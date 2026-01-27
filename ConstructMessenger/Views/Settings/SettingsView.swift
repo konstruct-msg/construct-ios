@@ -167,10 +167,11 @@ struct SettingsView: View {
     // MARK: - Contact Link
     private var contactLink: String {
         guard let userId = authViewModel.currentUserId,
-              let username = authViewModel.currentUsername else {
+              !authViewModel.currentUsername.isEmpty else {  // ✅ FIX: currentUsername is String, not String?
             return ""
         }
         
+        let username = authViewModel.currentUsername
         let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? username
         
         var components = URLComponents()
@@ -206,10 +207,7 @@ struct SettingsView: View {
     let container = PreviewHelpers.createPreviewContainer()
     let context = container.viewContext
     let authViewModel = AuthViewModel(context: context)
-    authViewModel.isAuthenticated = true
-    authViewModel.currentUserId = "user123"
-    authViewModel.currentUsername = "john_doe"
-    authViewModel.currentDisplayName = "John Doe"
+    authViewModel.configureMockAuth()  // ✅ REFACTOR Phase 1.2
 
     return SettingsView()
         .environment(\.managedObjectContext, context)

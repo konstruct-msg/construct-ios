@@ -99,10 +99,7 @@ struct ContentView: View {
     }
     
     let authViewModel = AuthViewModel(context: context)
-    authViewModel.isAuthenticated = true
-    authViewModel.currentUserId = "me"
-    authViewModel.currentUsername = "john_doe"
-    authViewModel.currentDisplayName = "John Doe"
+    authViewModel.configureMockAuth(username: "john_doe", displayName: "John Doe")  // ✅ REFACTOR Phase 1.2
     let deepLinkHandler = DeepLinkHandler()
     let chatsViewModel = ChatsViewModel()
     chatsViewModel.setContext(context)

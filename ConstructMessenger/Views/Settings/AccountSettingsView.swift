@@ -127,41 +127,47 @@ struct AccountSettingsView: View {
             
             // MARK: - Logout Section
             Section {
-                Button(role: .destructive) {
+                Button {
                     showingLogoutConfirmation = true
                 } label: {
                     HStack {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .foregroundColor(.blue)
+                        Text("logout")
                         Spacer()
-                        Label {
-                            Text("logout")
-                                .fontWeight(.semibold)
-                        } icon: {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                        }
-                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
                     }
                 }
             }
             
-            // MARK: - Delete Account Section
+            // MARK: - Danger Zone
             Section {
                 Button(role: .destructive) {
                     showingDeleteAccountWarning = true
                 } label: {
-                    HStack {
-                        Spacer()
-                        Label {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
                             Text("delete_my_account")
-                                .fontWeight(.semibold)
-                        } icon: {
-                            Image(systemName: "trash")
+                                .fontWeight(.bold)
+                            Spacer()
                         }
-                        Spacer()
+                        
+                        HStack {
+                            Text("delete_account_warning")
+                                .font(.caption)
+                                .foregroundColor(.red.opacity(0.8))
+                                .multilineTextAlignment(.leading)
+                            Spacer()
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-            } footer: {
-                Text("delete_account_warning")
-                    .font(.caption)
+            } header: {
+                Text("DANGER_ZONE")
                     .foregroundColor(.red)
             }
         }
@@ -384,10 +390,7 @@ struct ImagePicker: UIViewControllerRepresentable {
     try? context.save()
 
     let authViewModel = AuthViewModel(context: context)
-    authViewModel.isAuthenticated = true
-    authViewModel.currentUserId = "user123"
-    authViewModel.currentUsername = "john_doe"
-    authViewModel.currentDisplayName = "John Doe"
+    authViewModel.configureMockAuth()  // ✅ REFACTOR Phase 1.2
 
     return NavigationStack {
         AccountSettingsView()

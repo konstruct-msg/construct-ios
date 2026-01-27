@@ -286,4 +286,8 @@
 "delete_account_password_hint" = "Enter your account password to confirm deletion.";
 "delete_account" = "Delete Account";
 "password_required" = "Password is required";
-"warning" = "Warning";
+"warning" = "Warning";"DANGER_ZONE" = "Danger Zone";
+"profile_currently_shared" = "Profile currently shared";
+"stop_sharing_profile" = "Stop Sharing Profile";
+"share_my_profile" = "Share My Profile";
+"share_profile_explanation" = "Share your name and photo with this contact";

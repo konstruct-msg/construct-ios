@@ -148,7 +148,7 @@ class PushNotificationManager: NSObject, ObservableObject {
         do {
             Log.info("📡 Registering device token with server", category: "Push")
             
-            let response = try await RestAPIClient.shared.registerDeviceToken(token: token)
+            let response = try await APNsAPI.shared.registerDeviceToken(token: token)
             
             Log.info("✅ Device token registered with server: success=\(response.success)", category: "Push")
             
@@ -163,7 +163,7 @@ class PushNotificationManager: NSObject, ObservableObject {
         do {
             Log.info("📡 Unregistering device token from server", category: "Push")
             
-            try await RestAPIClient.shared.unregisterDeviceToken(token: token)
+            try await APNsAPI.shared.unregisterDeviceToken(token: token)
             
             Log.info("✅ Device token unregistered from server", category: "Push")
             

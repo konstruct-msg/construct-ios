@@ -88,16 +88,43 @@ struct UserProfileView: View {
                 
                 // MARK: - Actions
                 Section {
-                    // Share my data toggle
-                    Toggle(isOn: Binding(
-                        get: { user.amISharingWith },
-                        set: { newValue in
-                            handleShareToggle(newValue)
+                    // Share profile button
+                    if user.amISharingWith {
+                        // Already sharing - show status and stop button
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("profile_currently_shared")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            
+                            Button {
+                                handleShareToggle(false)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.crop.circle.badge.minus")
+                                    Text("stop_sharing_profile")
+                                    Spacer()
+                                }
+                                .foregroundColor(.red)
+                            }
                         }
-                    )) {
-                        HStack {
-                            Image(systemName: "person.circle")
-                            Text("share_my_data")
+                    } else {
+                        // Not sharing - show share button
+                        Button {
+                            handleShareToggle(true)
+                        } label: {
+                            HStack {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                                    .foregroundColor(.blue)
+                                Text("share_my_profile")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
                         }
                     }
                     
@@ -117,6 +144,10 @@ struct UserProfileView: View {
                         Text("user_is_blocked_footer")
                             .font(.caption)
                             .foregroundColor(.red)
+                    } else if !user.amISharingWith {
+                        Text("share_profile_explanation")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
             }

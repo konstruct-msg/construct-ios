@@ -43,6 +43,32 @@ struct MessageBubble: View {
     }
 
     var body: some View {
+        // ✅ Check if this is a system message
+        if let content = message.decryptedContent, content.hasPrefix("[SYSTEM]") {
+            systemMessageView(content.replacingOccurrences(of: "[SYSTEM]", with: "").trimmingCharacters(in: .whitespaces))
+        } else {
+            regularMessageView
+        }
+    }
+    
+    // MARK: - System Message View
+    private func systemMessageView(_ content: String) -> some View {
+        HStack {
+            Spacer()
+            Text(content)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+    
+    // MARK: - Regular Message View
+    private var regularMessageView: some View {
         HStack(spacing: 8) {
             // Selection checkbox in edit mode
             if isEditMode {

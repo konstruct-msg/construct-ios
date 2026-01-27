@@ -13,8 +13,19 @@ import CoreData
 class AuthViewModel: ObservableObject {
     @Published var isAuthenticated = false
     @Published var currentUserId: String?
-    @Published var currentUsername: String?
-    @Published var currentDisplayName: String?
+    
+    // ✅ REFACTOR Phase 1.2: Single source of truth - Core Data User entity
+    @Published var currentUser: User?
+    
+    // ✅ Computed properties for convenience (backwards compatibility)
+    var currentUsername: String {
+        currentUser?.username ?? ""
+    }
+    
+    var currentDisplayName: String {
+        currentUser?.displayName ?? currentUser?.username ?? ""
+    }
+    
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -90,7 +101,7 @@ class AuthViewModel: ObservableObject {
         Task {
             do {
                 Log.info("📡 Verifying server connection with quick poll...", category: "AuthViewModel")
-                _ = try await RestAPIClient.shared.pollMessages(sinceId: nil, timeout: 0)
+                _ = try await MessagingAPI.shared.pollMessages(sinceId: nil, timeout: 0)
                 
                 await MainActor.run {
                     self.isAuthenticated = true
@@ -186,7 +197,7 @@ class AuthViewModel: ObservableObject {
                 )
 
                 // Step 4: Send to server via REST API (new approach)
-                let result = try await RestAPIClient.shared.register(
+                let result = try await AuthAPI.shared.register(
                     username: username,
                     password: password,
                     publicKey: uploadableBundle
@@ -220,7 +231,7 @@ class AuthViewModel: ObservableObject {
         Task {
             do {
                 // Login via REST API (new approach)
-                let result = try await RestAPIClient.shared.login(
+                let result = try await AuthAPI.shared.login(
                     username: username,
                     password: password
                 )
@@ -251,7 +262,7 @@ class AuthViewModel: ObservableObject {
             // Logout via REST API
             if let token = SessionManager.shared.sessionToken {
                 do {
-                    try await RestAPIClient.shared.logout(sessionToken: token)
+                    try await AuthAPI.shared.logout(sessionToken: token)
                 } catch {
                     Log.error("Logout API call failed: \(error.localizedDescription)", category: "Auth")
                     // Continue with local logout even if API call fails
@@ -268,8 +279,7 @@ class AuthViewModel: ObservableObject {
                 
                 isAuthenticated = false
                 currentUserId = nil
-                currentUsername = nil
-                currentDisplayName = nil
+                currentUser = nil  // ✅ REFACTOR Phase 1.2
             }
         }
     }
@@ -287,7 +297,7 @@ class AuthViewModel: ObservableObject {
         
         Task {
             do {
-                try await RestAPIClient.shared.deleteAccount(sessionToken: token, password: password)
+                try await AuthAPI.shared.deleteAccount(sessionToken: token, password: password)
                 
                 await MainActor.run {
                     handleDeleteAccountSuccess()
@@ -358,11 +368,11 @@ class AuthViewModel: ObservableObject {
         KeychainManager.shared.saveLastUsername(username)
         
         currentUserId = userId
-        currentUsername = username
         isAuthenticated = true
         
-        // ✅ FIX: Load local user data (like display name) after successful auth
-        loadUserFromCoreData(userId: userId)
+        // ✅ REFACTOR Phase 1.2: Load User entity and set currentUser
+        // Pass username parameter so it gets saved to Core Data
+        loadUserFromCoreData(userId: userId, username: username)
         
         // ✅ NEW: Request push notification permission after successful registration/login
         // This is done async to not block the auth flow
@@ -388,10 +398,9 @@ class AuthViewModel: ObservableObject {
         KeychainManager.shared.saveLastUsername(username)
 
         currentUserId = userId
-        currentUsername = username
         isAuthenticated = true
 
-        // ✅ FIX: Load local user data (like display name) after successful auth
+        // ✅ REFACTOR Phase 1.2: Load User entity and set currentUser
         loadUserFromCoreData(userId: userId)
         print("✅ User authenticated successfully")
     }
@@ -420,8 +429,7 @@ class AuthViewModel: ObservableObject {
             // Continue with logout even if Core Data isn't ready
             isAuthenticated = false
             currentUserId = nil
-            currentUsername = nil
-            currentDisplayName = nil
+            currentUser = nil  // ✅ REFACTOR Phase 1.2
             NotificationCenter.default.post(name: NSNotification.Name("AccountDeleted"), object: nil)
             return
         }
@@ -453,8 +461,7 @@ class AuthViewModel: ObservableObject {
         // Reset auth state
         isAuthenticated = false
         currentUserId = nil
-        currentUsername = nil
-        currentDisplayName = nil
+        currentUser = nil  // ✅ REFACTOR Phase 1.2
         
         // Notify UI that account was deleted
         NotificationCenter.default.post(name: NSNotification.Name("AccountDeleted"), object: nil)
@@ -465,46 +472,180 @@ class AuthViewModel: ObservableObject {
     // MARK: - Core Data Integration
     
     /// Finds or creates the User entity and loads local data into the AuthViewModel
-    private func loadUserFromCoreData(userId: String) {
+    /// - Parameters:
+    ///   - userId: The user ID to load data for
+    ///   - username: Optional username to update/set (from login response)
+    private func loadUserFromCoreData(userId: String, username: String? = nil) {
         // ✅ FIX: Check if persistent store coordinator is ready before accessing entities
         guard viewContext.persistentStoreCoordinator != nil else {
             print("⚠️ Core Data persistent store coordinator not ready yet, skipping user load")
             return
         }
         
-        let fetchRequest: NSFetchRequest<User> = User.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", userId)
+        // ✅ MIGRATION: First try to find user with multi-account filter
+        let fetchRequest = User.fetchRequestForCurrentUser()
+        let ownerPredicate = fetchRequest.predicate!
+        let idPredicate = NSPredicate(format: "id == %@", userId)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, idPredicate])
+        
+        print("🔍 loadUserFromCoreData: Searching for userId: \(userId)")
+        print("   Current ownerId from SessionManager: \(SessionManager.shared.currentUserId ?? "nil")")
+        if let username = username {
+            print("   Username from parameter: \(username)")
+        }
         
         do {
             let user: User
+            var needsSave = false
+            
             if let existingUser = try viewContext.fetch(fetchRequest).first {
                 user = existingUser
                 print("👤 Found existing user in Core Data: \(user.displayName)")
+                print("   ownerId: \(user.value(forKey: "ownerId") as? String ?? "nil")")
+                
+                // ✅ UPDATE: Update username if provided and different
+                if let newUsername = username, !newUsername.isEmpty {
+                    if user.username.isEmpty || user.username != newUsername {
+                        print("🔄 Updating username: '\(user.username)' -> '\(newUsername)'")
+                        user.username = newUsername
+                        // Also update displayName if it's empty or was same as old username
+                        if user.displayName.isEmpty || user.displayName == user.username {
+                            user.displayName = newUsername
+                        }
+                        needsSave = true
+                    }
+                }
             } else {
-                // First login on this device, create a new User entity
-                user = User(context: viewContext)
-                user.id = userId
-                user.username = self.currentUsername ?? ""
-                user.displayName = self.currentUsername ?? "" // Default display name to username
-                user.isSharingWithMe = false
-                user.isBlocked = false
-                user.amISharingWith = false
-                try viewContext.save()
-                print("✨ Created new user in Core Data for ID: \(userId)")
+                print("⚠️ User not found with multi-account filter, trying legacy fetch...")
+                // Try to find user without owner filter (migration case)
+                let legacyFetchRequest: NSFetchRequest<User> = User.fetchRequest()
+                legacyFetchRequest.predicate = NSPredicate(format: "id == %@", userId)
+                
+                if let legacyUser = try viewContext.fetch(legacyFetchRequest).first {
+                    // Found legacy user without ownerId - update it
+                    print("🔄 Found legacy user with ownerId: \(legacyUser.value(forKey: "ownerId") as? String ?? "nil")")
+                    legacyUser.setOwnerToCurrentUser()
+                    
+                    // ✅ UPDATE: Also update username if provided
+                    if let newUsername = username, !newUsername.isEmpty {
+                        if legacyUser.username.isEmpty || legacyUser.username != newUsername {
+                            print("🔄 Updating legacy user username: '\(legacyUser.username)' -> '\(newUsername)'")
+                            legacyUser.username = newUsername
+                            if legacyUser.displayName.isEmpty {
+                                legacyUser.displayName = newUsername
+                            }
+                        }
+                    }
+                    
+                    user = legacyUser
+                    needsSave = true
+                    print("🔄 Migrated legacy user to current owner: \(legacyUser.displayName)")
+                    print("   New ownerId: \(legacyUser.value(forKey: "ownerId") as? String ?? "nil")")
+                } else {
+                    print("✨ No user found, creating new user...")
+                    // First login on this device, create a new User entity
+                    user = User(context: viewContext)
+                    user.id = userId
+                    user.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
+                    user.username = username ?? ""  // ✅ FIX: Use parameter instead of self.currentUsername
+                    user.displayName = username ?? "" // Default display name to username
+                    user.isSharingWithMe = false
+                    user.isBlocked = false
+                    user.amISharingWith = false
+                    needsSave = true
+                    print("✨ Created new user in Core Data for ID: \(userId)")
+                    print("   username: \(user.username)")
+                    print("   ownerId: \(user.value(forKey: "ownerId") as? String ?? "nil")")
+                }
             }
             
-            // Update the published properties
+            // Save if needed
+            if needsSave {
+                try viewContext.save()
+                print("💾 Saved user changes to Core Data")
+            }
+            
+            // ✅ REFACTOR Phase 1.2: Set currentUser - single source of truth!
             self.currentUserId = user.id
-            self.currentUsername = user.username
-            self.currentDisplayName = user.displayName
+            self.currentUser = user
             
             print("✅ Restored user data from Core Data:")
             print("   userId: \(user.id ?? "nil")")
             print("   username: \(user.username ?? "nil")")
             print("   displayName: \(user.displayName ?? "nil")")
             
+            // ✅ MIGRATION: Update legacy Chats and Messages with nil ownerId
+            migrateLegacyData(for: userId)
+            
         } catch {
             print("❌ Failed to fetch or create user from Core Data: \(error)")
         }
     }
+    
+    /// Migrate legacy data (Chats, Messages, Users) without ownerId to current user
+    private func migrateLegacyData(for userId: String) {
+        let context = viewContext
+        
+        // Migrate Chats
+        let chatFetch: NSFetchRequest<Chat> = Chat.fetchRequest()
+        chatFetch.predicate = NSPredicate(format: "ownerId == nil")
+        if let legacyChats = try? context.fetch(chatFetch) {
+            for chat in legacyChats {
+                chat.setOwnerToCurrentUser()
+            }
+            if !legacyChats.isEmpty {
+                try? context.save()
+                print("🔄 Migrated \(legacyChats.count) legacy chats to current owner")
+            }
+        }
+        
+        // Migrate Messages
+        let messageFetch: NSFetchRequest<Message> = Message.fetchRequest()
+        messageFetch.predicate = NSPredicate(format: "ownerId == nil")
+        if let legacyMessages = try? context.fetch(messageFetch) {
+            for message in legacyMessages {
+                message.setOwnerToCurrentUser()
+            }
+            if !legacyMessages.isEmpty {
+                try? context.save()
+                print("🔄 Migrated \(legacyMessages.count) legacy messages to current owner")
+            }
+        }
+        
+        // Migrate Users (other users in chats)
+        let userFetch: NSFetchRequest<User> = User.fetchRequest()
+        userFetch.predicate = NSPredicate(format: "ownerId == nil AND id != %@", userId)
+        if let legacyUsers = try? context.fetch(userFetch) {
+            for user in legacyUsers {
+                user.setOwnerToCurrentUser()
+            }
+            if !legacyUsers.isEmpty {
+                try? context.save()
+                print("🔄 Migrated \(legacyUsers.count) legacy users to current owner")
+            }
+        }
+    }
 }
+
+// MARK: - Preview Helpers
+
+#if DEBUG
+extension AuthViewModel {
+    /// Creates a mock User for SwiftUI previews
+    static func createMockUser(context: NSManagedObjectContext, username: String = "john_doe", displayName: String = "John Doe") -> User {
+        let user = User(context: context)
+        user.id = UUID().uuidString
+        user.username = username
+        user.displayName = displayName
+        user.setOwnerToCurrentUser()
+        return user
+    }
+    
+    /// Configures AuthViewModel for previews with mock data
+    func configureMockAuth(username: String = "john_doe", displayName: String = "John Doe") {
+        self.isAuthenticated = true
+        self.currentUserId = UUID().uuidString
+        self.currentUser = AuthViewModel.createMockUser(context: viewContext, username: username, displayName: displayName)
+    }
+}
+#endif

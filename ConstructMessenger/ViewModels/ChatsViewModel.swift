@@ -177,7 +177,7 @@ class ChatsViewModel: ObservableObject {
                     Log.info("📡 Polling loop: lastMessageId is nil (first request)", category: "ChatsViewModel")
                 }
                 
-                let response = try await RestAPIClient.shared.pollMessages(
+                let response = try await MessagingAPI.shared.pollMessages(
                     sinceId: lastMessageId,
                     timeout: 30
                 )
@@ -245,16 +245,22 @@ class ChatsViewModel: ObservableObject {
     func startChat(with user: PublicUserInfo) -> Chat? {
         guard let context = viewContext else { return nil }
 
-        let fetchRequest: NSFetchRequest<Chat> = Chat.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "otherUser.id == %@", user.id)
+        let fetchRequest = Chat.fetchRequestForCurrentUser()
+        // Combine predicates
+        let chatOwnerPredicate = fetchRequest.predicate!
+        let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", user.id)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [chatOwnerPredicate, otherUserPredicate])
 
         if let existingChat = try? context.fetch(fetchRequest).first {
             return existingChat
         }
 
         // ✅ FIX: Check if User already exists before creating a new one
-        let userFetchRequest: NSFetchRequest<User> = User.fetchRequest()
-        userFetchRequest.predicate = NSPredicate(format: "id == %@", user.id)
+        let userFetchRequest = User.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let userOwnerPredicate = userFetchRequest.predicate!
+        let idPredicate = NSPredicate(format: "id == %@", user.id)
+        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, idPredicate])
 
         let dbUser: User
         if let existingUser = try? context.fetch(userFetchRequest).first {
@@ -272,12 +278,14 @@ class ChatsViewModel: ObservableObject {
             dbUser.isSharingWithMe = false
             dbUser.isBlocked = false
             dbUser.amISharingWith = false
+            dbUser.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
             Log.debug("Created new user: id=\(user.id), username=\(user.username), displayName=\(user.username)", category: "ChatsViewModel")
         }
 
         let chat = Chat(context: context)
         chat.id = UUID().uuidString
         chat.otherUser = dbUser
+        chat.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
 
         do {
             try context.save()
@@ -320,8 +328,11 @@ class ChatsViewModel: ObservableObject {
             guard let context = viewContext else { return }
             
             // Find user in any chat
-            let chatFetch: NSFetchRequest<Chat> = Chat.fetchRequest()
-            chatFetch.predicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            let chatFetch = Chat.fetchRequestForCurrentUser()
+            // Combine with additional predicate
+            let ownerPredicate = chatFetch.predicate!
+            let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            chatFetch.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, otherUserPredicate])
             
             if let existingChat = try? context.fetch(chatFetch).first,
                let user = existingChat.otherUser {
@@ -338,8 +349,12 @@ class ChatsViewModel: ObservableObject {
                 }
             } else {
                 // Try to find user directly
-                let userFetch: NSFetchRequest<User> = User.fetchRequest()
-                userFetch.predicate = NSPredicate(format: "id == %@", data.userId)
+                let userFetch = User.fetchRequestForCurrentUser()
+                // Combine with additional predicate
+                let userOwnerPredicate = userFetch.predicate!
+                let userIdPredicate = NSPredicate(format: "id == %@", data.userId)
+                userFetch.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, userIdPredicate])
+                
                 if let existingUser = try? context.fetch(userFetch).first {
                     let oldUsername = existingUser.username
                     existingUser.username = data.username
@@ -385,8 +400,11 @@ class ChatsViewModel: ObservableObject {
             Log.info("✅ Receiving session initialized for \(data.userId), first message decrypted", category: "ChatsViewModel")
 
             // Find or create chat (chat was already created in handleIncomingMessage)
-            let fetchRequest: NSFetchRequest<Chat> = Chat.fetchRequest()
-            fetchRequest.predicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            let fetchRequest = Chat.fetchRequestForCurrentUser()
+            // Combine with additional predicate
+            let ownerPredicate = fetchRequest.predicate!
+            let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, otherUserPredicate])
 
             let chat: Chat
             if let existingChat = try? context.fetch(fetchRequest).first {
@@ -413,8 +431,11 @@ class ChatsViewModel: ObservableObject {
                 // But if it does, create it with correct username from the start
 
                 // ✅ FIX: Check if User already exists before creating
-                let userFetchRequest: NSFetchRequest<User> = User.fetchRequest()
-                userFetchRequest.predicate = NSPredicate(format: "id == %@", data.userId)
+                let userFetchRequest = User.fetchRequestForCurrentUser()
+                // Combine with additional predicate
+                let userOwnerPredicate = userFetchRequest.predicate!
+                let userIdPredicate = NSPredicate(format: "id == %@", data.userId)
+                userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, userIdPredicate])
 
                 let dbUser: User
                 if let existingUser = try? context.fetch(userFetchRequest).first {
@@ -430,12 +451,14 @@ class ChatsViewModel: ObservableObject {
                     newUser.isSharingWithMe = false
                     newUser.isBlocked = false
                     newUser.amISharingWith = false
+                    newUser.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
                     dbUser = newUser
                     Log.debug("Created new user in fallback: id=\(data.userId), username=\(data.username)", category: "ChatsViewModel")
                 }
 
                 let newChat = Chat(context: context)
                 newChat.id = UUID().uuidString
+                newChat.setOwnerToCurrentUser()
                 newChat.otherUser = dbUser
                 chat = newChat
                 Log.debug("⚠️ Chat didn't exist, created new one with username: \(data.username) (this shouldn't happen)", category: "ChatsViewModel")
@@ -466,8 +489,11 @@ class ChatsViewModel: ObservableObject {
 
         let otherUserId = message.from == currentUserId ? message.to : message.from
 
-        let fetchRequest: NSFetchRequest<Chat> = Chat.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "otherUser.id == %@", otherUserId)
+        let fetchRequest = Chat.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", otherUserId)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, otherUserPredicate])
 
         let chat: Chat
         let isNewChat: Bool
@@ -479,8 +505,11 @@ class ChatsViewModel: ObservableObject {
             // Username will be updated when we receive publicKeyBundle
 
             // ✅ FIX: Check if User already exists before creating
-            let userFetchRequest: NSFetchRequest<User> = User.fetchRequest()
-            userFetchRequest.predicate = NSPredicate(format: "id == %@", otherUserId)
+            let userFetchRequest = User.fetchRequestForCurrentUser()
+            // Combine with additional predicate
+            let userOwnerPredicate = userFetchRequest.predicate!
+            let userIdPredicate = NSPredicate(format: "id == %@", otherUserId)
+            userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, userIdPredicate])
 
             let dbUser: User
             if let existingUser = try? context.fetch(userFetchRequest).first {
@@ -490,6 +519,7 @@ class ChatsViewModel: ObservableObject {
             } else {
                 let newUser = User(context: context)
                 newUser.id = otherUserId
+                newUser.setOwnerToCurrentUser() 
                 newUser.username = otherUserId  // Temporary: will be updated from publicKeyBundle
                 newUser.displayName = otherUserId
                 newUser.isSharingWithMe = false
@@ -502,6 +532,7 @@ class ChatsViewModel: ObservableObject {
 
             let newChat = Chat(context: context)
             newChat.id = UUID().uuidString
+            newChat.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
             newChat.otherUser = dbUser
             chat = newChat
             isNewChat = true
@@ -535,7 +566,7 @@ class ChatsViewModel: ObservableObject {
             // ✅ FIXED: Request sender's public key bundle from server via REST API
             Task {
                 do {
-                    let publicKeyBundle = try await RestAPIClient.shared.getPublicKey(userId: otherUserId)
+                    let publicKeyBundle = try await CryptoAPI.shared.getPublicKey(userId: otherUserId)
                     await MainActor.run {
                         self.handlePublicKeyBundleForIncomingMessage(publicKeyBundle, message: message, otherUserId: otherUserId)
                     }
@@ -558,7 +589,7 @@ class ChatsViewModel: ObservableObject {
                 Log.debug("🔄 Decryption failed, session was deleted. Requesting reinitialization...", category: "ChatsViewModel")
                 Task {
                     do {
-                        let publicKeyBundle = try await RestAPIClient.shared.getPublicKey(userId: otherUserId)
+                        let publicKeyBundle = try await CryptoAPI.shared.getPublicKey(userId: otherUserId)
                         await MainActor.run {
                             self.handlePublicKeyBundleForIncomingMessage(publicKeyBundle, message: message, otherUserId: otherUserId)
                         }
@@ -587,7 +618,7 @@ class ChatsViewModel: ObservableObject {
                     Log.info("🔄 Username/displayName for user \(otherUserId) is still UUID (username=\(user.username), displayName=\(user.displayName)), requesting publicKeyBundle to update", category: "ChatsViewModel")
                     Task {
                         do {
-                            let publicKeyBundle = try await RestAPIClient.shared.getPublicKey(userId: otherUserId)
+                            let publicKeyBundle = try await CryptoAPI.shared.getPublicKey(userId: otherUserId)
                             await MainActor.run {
                                 // Update username from public key bundle
                                 if let chatUser = chat.otherUser {
@@ -646,8 +677,11 @@ class ChatsViewModel: ObservableObject {
         Log.info("📦 Received publicKeyBundle for incoming message from userId: \(data.userId)", category: "ChatsViewModel")
         
         // Update username if we have the user in Core Data
-        let userFetchRequest: NSFetchRequest<User> = User.fetchRequest()
-        userFetchRequest.predicate = NSPredicate(format: "id == %@", data.userId)
+        let userFetchRequest = User.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let userOwnerPredicate = userFetchRequest.predicate!
+        let userIdPredicate = NSPredicate(format: "id == %@", data.userId)
+        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, userIdPredicate])
         
         if let user = try? context.fetch(userFetchRequest).first {
             user.username = data.username
@@ -678,8 +712,11 @@ class ChatsViewModel: ObservableObject {
             
             // Process the decrypted message
             // Find or create chat
-            let chatFetchRequest: NSFetchRequest<Chat> = Chat.fetchRequest()
-            chatFetchRequest.predicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            let chatFetchRequest = Chat.fetchRequestForCurrentUser()
+            // Combine with additional predicate
+            let chatOwnerPredicate = chatFetchRequest.predicate!
+            let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", data.userId)
+            chatFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [chatOwnerPredicate, otherUserPredicate])
             
             if let chat = try? context.fetch(chatFetchRequest).first {
                 saveMessage(for: chat, with: message, decryptedContent: decryptedContent)
@@ -732,8 +769,11 @@ class ChatsViewModel: ObservableObject {
     private func handleProfileMessage(_ profileData: ProfileShareData, from userId: String) {
         guard let context = viewContext else { return }
         
-        let userFetchRequest: NSFetchRequest<User> = User.fetchRequest()
-        userFetchRequest.predicate = NSPredicate(format: "id == %@", userId)
+        let userFetchRequest = User.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = userFetchRequest.predicate!
+        let userIdPredicate = NSPredicate(format: "id == %@", userId)
+        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, userIdPredicate])
         
         guard let user = try? context.fetch(userFetchRequest).first else {
             Log.error("❌ User not found for profile update: \(userId)", category: "ChatsViewModel")
@@ -804,6 +844,13 @@ class ChatsViewModel: ObservableObject {
         user.isSharingWithMe = true
         user.sharedWithMeAt = Date()
         
+        // ✅ Add system message to chat
+        addSystemMessageToChat(
+            userId: userId,
+            displayName: profileData.displayName,
+            hasAvatar: profileData.avatarMediaId != nil || profileData.avatarData != nil
+        )
+        
         do {
             try context.save()
             Log.info("✅ Profile data updated for user \(userId): displayName=\(profileData.displayName)", category: "ChatsViewModel")
@@ -812,18 +859,81 @@ class ChatsViewModel: ObservableObject {
         }
     }
     
+    /// Add system message to chat when profile is shared
+    private func addSystemMessageToChat(userId: String, displayName: String, hasAvatar: Bool) {
+        guard let context = viewContext else { return }
+        
+        // Find or create chat
+        let chatFetchRequest = Chat.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = chatFetchRequest.predicate!
+        let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", userId)
+        chatFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, otherUserPredicate])
+        
+        guard let chat = try? context.fetch(chatFetchRequest).first else {
+            Log.error("❌ Chat not found for user \(userId)", category: "ChatsViewModel")
+            return
+        }
+        
+        // Create system message
+        let message = Message(context: context)
+        message.id = UUID().uuidString
+        message.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
+        message.timestamp = Date()
+        message.chat = chat
+        message.fromUserId = userId
+        message.toUserId = SessionManager.shared.currentUserId ?? ""
+        message.isSentByMe = false
+        message.encryptedContent = ""  // System messages don't need encryption
+        
+        // Use special prefix to mark as system message
+        let icon = hasAvatar ? "📸" : "👤"
+        message.decryptedContent = "[SYSTEM]\(icon) \(displayName) shared their profile"
+        
+        message.deliveryStatus = .delivered
+        
+        // Update chat's last message
+        chat.lastMessageText = message.decryptedContent?.replacingOccurrences(of: "[SYSTEM]", with: "")
+        chat.lastMessageTime = message.timestamp
+        
+        do {
+            try context.save()
+            Log.info("✅ Added system message for profile share from \(userId)", category: "ChatsViewModel")
+        } catch {
+            Log.error("❌ Failed to save system message: \(error)", category: "ChatsViewModel")
+        }
+    }
+    
     private func saveMessage(for chat: Chat, with messageData: ChatMessage, decryptedContent: String) {
         guard let context = viewContext else { return }
 
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", messageData.id)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let messagePredicate = NSPredicate(format: "id == %@", messageData.id)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, messagePredicate])
 
-        if (try? context.fetch(fetchRequest).first) != nil {
-            return // Already exists
+        // ✅ Check if message already exists (from background fetch)
+        if let existingMessage = try? context.fetch(fetchRequest).first {
+            // ✅ Update decryptedContent if it's nil (background fetch couldn't decrypt)
+            if existingMessage.decryptedContent == nil {
+                Log.debug("🔄 Updating decrypted content for message \(messageData.id)", category: "ChatsViewModel")
+                existingMessage.decryptedContent = decryptedContent
+                
+                do {
+                    try context.save()
+                    Log.debug("✅ Updated message decryption", category: "ChatsViewModel")
+                } catch {
+                    Log.error("❌ Failed to update message: \(error)", category: "ChatsViewModel")
+                }
+            }
+            return // Message already exists and is decrypted
         }
 
+        // ✅ Create new message
         let message = Message(context: context)
         message.id = messageData.id
+        message.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
         message.fromUserId = messageData.from
         message.toUserId = messageData.to
         message.encryptedContent = messageData.content

@@ -134,7 +134,7 @@ class ProfileShareViewModel: ObservableObject {
                 // ✅ FIXED: Send via REST API instead of WebSocket
                 Task {
                     do {
-                        let response = try await RestAPIClient.shared.sendMessage(
+                        let response = try await MessagingAPI.shared.sendMessage(
                             recipientId: userId,
                             ephemeralPublicKey: encryptedComponents.ephemeralPublicKey,
                             messageNumber: encryptedComponents.messageNumber,

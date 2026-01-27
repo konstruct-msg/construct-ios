@@ -140,7 +140,7 @@ class MediaUploadService {
     func requestUploadToken() async throws -> MediaTokenData {
         // ✅ FIXED: Use REST API instead of WebSocket
         do {
-            return try await RestAPIClient.shared.requestMediaToken()
+            return try await MediaAPI.shared.requestMediaToken()
         } catch {
             throw MediaUploadError.tokenRequestFailed(error.localizedDescription)
         }

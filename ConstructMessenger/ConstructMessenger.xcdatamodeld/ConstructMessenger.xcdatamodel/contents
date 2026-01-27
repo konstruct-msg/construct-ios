@@ -10,23 +10,27 @@
         <attribute name="isBlocked" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarType="YES"/>
         <attribute name="sharedWithMeAt" optional="YES" attributeType="Date" usesScalarType="NO"/>
         <attribute name="amISharingWith" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarType="YES"/>
+        <attribute name="ownerId" optional="YES" attributeType="String"/>
         <relationship name="chats" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Chat" inverseName="otherUser" inverseEntity="Chat"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="id"/>
+                <constraint value="ownerId"/>
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
     <entity name="Chat" representedClassName="Chat" syncable="YES">
         <attribute name="id" attributeType="String"/>
         <attribute name="lastMessageText" optional="YES" attributeType="String"/>
-        <attribute name="lastMessageTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastMessageTime" optional="YES" attributeType="Date" usesScalarType="NO"/>
         <attribute name="sessionId" optional="YES" attributeType="String"/>
+        <attribute name="ownerId" optional="YES" attributeType="String"/>
         <relationship name="messages" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Message" inverseName="chat" inverseEntity="Message"/>
         <relationship name="otherUser" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="User" inverseName="chats" inverseEntity="User"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="id"/>
+                <constraint value="ownerId"/>
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
@@ -41,12 +45,14 @@
         <attribute name="replyToMessageId" optional="YES" attributeType="String"/>
         <attribute name="retryCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="suiteId" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarType="NO"/>
         <attribute name="toUserId" attributeType="String"/>
+        <attribute name="ownerId" optional="YES" attributeType="String"/>
         <relationship name="chat" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Chat" inverseName="messages" inverseEntity="Chat"/>
         <uniquenessConstraints>
             <uniquenessConstraint>
                 <constraint value="id"/>
+                <constraint value="ownerId"/>
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>

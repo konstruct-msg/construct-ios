@@ -5,7 +5,7 @@ import UIKit
 import os.log
 
 @MainActor
-class ChatViewModel: ObservableObject {
+class ChatViewModel: NSObject, ObservableObject {
     @Published var messages: [Message] = []
     @Published var isSending = false
     @Published var errorMessage: String?
@@ -22,8 +22,9 @@ class ChatViewModel: ObservableObject {
     private var publicKeyFetchTimer: Timer?
     private let publicKeyFetchTimeout: TimeInterval = 10.0 // 10 seconds timeout
     
-    // ✅ NEW: Pagination support
-    private let initialMessageLimit = 50
+    // ✅ Pagination support - optimized for performance
+    private let initialMessageLimit = 30  // Load 30 most recent messages initially
+    private let loadMoreBatchSize = 20     // Load 20 older messages per "load more" request
     private var oldestLoadedTimestamp: Date?
     private var allLoadedMessageIds: Set<String> = []
 
@@ -41,6 +42,9 @@ class ChatViewModel: ObservableObject {
     init(chat: Chat, context: NSManagedObjectContext) {
         self.chat = chat
         self.viewContext = context
+        
+        super.init()  // ✅ REFACTOR: NSObject requires super.init()
+        
         Log.debug("🔧 ChatViewModel init: chat.id=\(chat.id), chat.otherUser?.id=\(chat.otherUser?.id ?? "nil"), chat.otherUser?.username=\(chat.otherUser?.username ?? "nil")", category: "ChatViewModel")
 
         setupFetchedResultsController()  // ✅ Setup FRC first
@@ -63,8 +67,11 @@ class ChatViewModel: ObservableObject {
     }
 
     private func setupFetchedResultsController() {
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@", chat)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let chatPredicate = NSPredicate(format: "chat == %@", chat)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, chatPredicate])
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
 
         fetchedResultsController = NSFetchedResultsController(
@@ -74,13 +81,17 @@ class ChatViewModel: ObservableObject {
             cacheName: nil
         )
 
-        // Observe changes using Combine
-        NotificationCenter.default.publisher(for: .NSManagedObjectContextObjectsDidChange, object: viewContext)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.reloadMessages()
-            }
-            .store(in: &cancellables)
+        // ✅ REFACTOR: Use proper FRC delegate instead of NotificationCenter
+        fetchedResultsController?.delegate = self
+        
+        do {
+            try fetchedResultsController?.performFetch()
+            // Initialize messages from FRC
+            messages = fetchedResultsController?.fetchedObjects ?? []
+            Log.debug("✅ FRC initial fetch: \(messages.count) messages", category: "ChatViewModel")
+        } catch {
+            Log.error("❌ FRC fetch failed: \(error)", category: "ChatViewModel")
+        }
     }
 
     private func setupSubscribers() {
@@ -156,7 +167,7 @@ class ChatViewModel: ObservableObject {
         // ✅ FIXED: Use REST API instead of WebSocket
         Task {
             do {
-                let publicKeyBundle = try await RestAPIClient.shared.getPublicKey(userId: userId)
+                let publicKeyBundle = try await CryptoAPI.shared.getPublicKey(userId: userId)
                 
                 await MainActor.run {
                     self.handlePublicKeyBundle(publicKeyBundle)
@@ -237,8 +248,11 @@ class ChatViewModel: ObservableObject {
     private func loadMessages() {
         Log.debug("📥 Loading initial messages for chat \(chat.id)", category: "ChatViewModel")
 
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@", chat)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let chatPredicate = NSPredicate(format: "chat == %@", chat)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, chatPredicate])
         // Sort by descending timestamp to get the newest messages first
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
         fetchRequest.fetchLimit = initialMessageLimit
@@ -267,10 +281,13 @@ class ChatViewModel: ObservableObject {
         isLoadingMore = true
         Log.debug("📥 Loading more messages before \(oldestTimestamp)", category: "ChatViewModel")
         
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@ AND timestamp < %@", chat, oldestTimestamp as NSDate)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let chatPredicate = NSPredicate(format: "chat == %@ AND timestamp < %@", chat, oldestTimestamp as NSDate)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, chatPredicate])
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-        fetchRequest.fetchLimit = initialMessageLimit
+        fetchRequest.fetchLimit = loadMoreBatchSize  // ✅ Use batch size for pagination
         
         if let fetchedMessages = try? viewContext.fetch(fetchRequest) {
             let newMessages = fetchedMessages.filter { !allLoadedMessageIds.contains($0.id) }
@@ -278,6 +295,7 @@ class ChatViewModel: ObservableObject {
             if newMessages.isEmpty {
                 hasMoreMessages = false
                 isLoadingMore = false
+                Log.debug("📭 No more older messages to load", category: "ChatViewModel")
                 return
             }
             
@@ -307,8 +325,11 @@ class ChatViewModel: ObservableObject {
             return
         }
         
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@ AND timestamp < %@", chat, oldestTimestamp as NSDate)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let chatPredicate = NSPredicate(format: "chat == %@ AND timestamp < %@", chat, oldestTimestamp as NSDate)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, chatPredicate])
         fetchRequest.fetchLimit = 1
         
         hasMoreMessages = (try? viewContext.fetch(fetchRequest).first) != nil
@@ -318,29 +339,39 @@ class ChatViewModel: ObservableObject {
     // MARK: - Delete Messages
     
     func deleteMessage(_ message: Message) {
-        // ✅ FIX: Check if message is valid and in correct context
+        // ✅ REFACTOR: Check if message is valid
         guard !message.isDeleted,
               message.managedObjectContext == viewContext else {
             Log.error("❌ Message is deleted or not in the correct context", category: "ChatViewModel")
-            // Remove from array if it's already deleted
-            let messageId = message.id
-            messages.removeAll { $0.id == messageId }
             return
         }
         
-        // ✅ FIX: Get message ID before deletion
         let messageId = message.id
         
-        // ✅ FIX: Remove from array BEFORE deleting from context to prevent crash
-        messages.removeAll { $0.id == messageId }
+        Log.debug("🗑️ Deleting message: \(messageId)", category: "ChatViewModel")
         
+        // ✅ REFACTOR: Only Core Data operations - FRC will update messages array automatically
         viewContext.delete(message)
         
         do {
+            viewContext.processPendingChanges()
             try viewContext.save()
+            Log.info("✅ Message deleted from Core Data: \(messageId)", category: "ChatViewModel")
             
-            // ✅ FIX: Update chat's lastMessageText and lastMessageTime if needed
-            if let lastMessage = messages.last {
+            // Sync parent context if needed
+            if let parent = viewContext.parent {
+                parent.performAndWait {
+                    try? parent.save()
+                }
+            }
+            
+            // ✅ Update chat metadata
+            let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "chat == %@", chat)
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            fetchRequest.fetchLimit = 1
+            
+            if let lastMessage = try? viewContext.fetch(fetchRequest).first {
                 chat.lastMessageText = lastMessage.decryptedContent
                 chat.lastMessageTime = lastMessage.timestamp
                 try? viewContext.save()
@@ -351,37 +382,54 @@ class ChatViewModel: ObservableObject {
                 try? viewContext.save()
             }
             
-            Log.info("✅ Message deleted: \(messageId)", category: "ChatViewModel")
         } catch {
             Log.error("❌ Failed to delete message: \(error)", category: "ChatViewModel")
-            // Reload messages on error to ensure consistency
-            reloadMessages()
+            // FRC will handle consistency automatically
         }
     }
     
     func deleteMessages(withIds messageIds: Set<String>) {
         guard !messageIds.isEmpty else { return }
         
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id IN %@", messageIds)
+        Log.debug("🗑️ Deleting \(messageIds.count) messages", category: "ChatViewModel")
+        
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let idsPredicate = NSPredicate(format: "id IN %@", messageIds)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, idsPredicate])
         
         guard let messagesToDelete = try? viewContext.fetch(fetchRequest) else {
             Log.error("❌ Failed to fetch messages for deletion", category: "ChatViewModel")
             return
         }
         
+        Log.debug("🗑️ Found \(messagesToDelete.count) messages to delete", category: "ChatViewModel")
+        
+        // ✅ REFACTOR: Only Core Data operations - FRC will update messages array automatically
         for message in messagesToDelete {
             viewContext.delete(message)
         }
         
         do {
+            viewContext.processPendingChanges()
             try viewContext.save()
+            Log.info("✅ \(messagesToDelete.count) messages deleted from Core Data", category: "ChatViewModel")
             
-            // ✅ FIX: Immediately remove from messages array to prevent crash
-            messages.removeAll { messageIds.contains($0.id) }
+            // Sync parent context if needed
+            if let parent = viewContext.parent {
+                parent.performAndWait {
+                    try? parent.save()
+                }
+            }
             
-            // ✅ FIX: Update chat's lastMessageText and lastMessageTime if needed
-            if let lastMessage = messages.last {
+            // ✅ Update chat metadata
+            let lastMessageFetch: NSFetchRequest<Message> = Message.fetchRequest()
+            lastMessageFetch.predicate = NSPredicate(format: "chat == %@", chat)
+            lastMessageFetch.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            lastMessageFetch.fetchLimit = 1
+            
+            if let lastMessage = try? viewContext.fetch(lastMessageFetch).first {
                 chat.lastMessageText = lastMessage.decryptedContent
                 chat.lastMessageTime = lastMessage.timestamp
                 try? viewContext.save()
@@ -392,42 +440,17 @@ class ChatViewModel: ObservableObject {
                 try? viewContext.save()
             }
             
-            Log.info("✅ Deleted \(messagesToDelete.count) messages", category: "ChatViewModel")
         } catch {
             Log.error("❌ Failed to delete messages: \(error)", category: "ChatViewModel")
-            // Reload messages on error to ensure consistency
-            reloadMessages()
         }
     }
     
+    // ✅ REFACTOR: Simplified - FRC now handles all updates automatically
+    // This method kept for backward compatibility but may be removed in future
     private func reloadMessages() {
-        // Check for new messages that were added
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@", chat)
-        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-        fetchRequest.fetchLimit = initialMessageLimit
-        
-        if let allMessages = try? viewContext.fetch(fetchRequest) {
-            let reversedAllMessages = Array(allMessages.reversed())
-            let newMessageIds = Set(reversedAllMessages.map { $0.id })
-            
-            // ✅ Always reload to catch status changes, not just new messages
-            // This ensures UI updates when message.deliveryStatus changes
-            let hasNewMessages = !newMessageIds.isSubset(of: allLoadedMessageIds)
-            let messagesChanged = messages.count != reversedAllMessages.count
-            
-            if hasNewMessages || messagesChanged {
-                messages = reversedAllMessages
-                oldestLoadedTimestamp = messages.first?.timestamp
-                allLoadedMessageIds = newMessageIds
-                checkIfHasMoreMessages()
-            } else {
-                // ✅ Force refresh by creating new array with same messages
-                // This triggers SwiftUI @Published update even if content is same
-                messages = Array(reversedAllMessages)
-                objectWillChange.send()
-            }
-        }
+        // FRC delegate (controllerDidChangeContent) handles all Core Data changes
+        // No manual array manipulation needed!
+        Log.debug("🔄 reloadMessages called - FRC handles this automatically now", category: "ChatViewModel")
     }
 
     // MARK: - Send Message
@@ -522,7 +545,7 @@ class ChatViewModel: ObservableObject {
             Log.info("📮 Sending message via REST API: \(messageId)", category: "ChatViewModel")
             Task {
                 do {
-                    let response = try await RestAPIClient.shared.sendMessage(
+                    let response = try await MessagingAPI.shared.sendMessage(
                         recipientId: recipientId,
                         ephemeralPublicKey: components.ephemeralPublicKey,
                         messageNumber: components.messageNumber,
@@ -572,7 +595,7 @@ class ChatViewModel: ObservableObject {
                 // ✅ FIXED: Request fresh public key bundle via REST API
                 Task {
                     do {
-                        let publicKeyBundle = try await RestAPIClient.shared.getPublicKey(userId: toUserId)
+                        let publicKeyBundle = try await CryptoAPI.shared.getPublicKey(userId: toUserId)
                         await MainActor.run {
                             self.handlePublicKeyBundle(publicKeyBundle)
                         }
@@ -606,8 +629,11 @@ class ChatViewModel: ObservableObject {
 
     // ✅ FIX: Send all queued messages when connection is restored
     private func sendQueuedMessages() {
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "chat == %@ AND deliveryStatusRaw == %d", chat, DeliveryStatus.queued.rawValue)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let chatPredicate = NSPredicate(format: "chat == %@ AND deliveryStatusRaw == %d", chat, DeliveryStatus.queued.rawValue)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, chatPredicate])
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
 
         guard let queuedMessages = try? viewContext.fetch(fetchRequest) else {
@@ -646,7 +672,7 @@ class ChatViewModel: ObservableObject {
                 // ✅ FIXED: Send via REST API instead of WebSocket
                 Task {
                     do {
-                        let response = try await RestAPIClient.shared.sendMessage(
+                        let response = try await MessagingAPI.shared.sendMessage(
                             recipientId: recipientId,
                             ephemeralPublicKey: components.ephemeralPublicKey,
                             messageNumber: components.messageNumber,
@@ -899,7 +925,7 @@ class ChatViewModel: ObservableObject {
             // ✅ Send via REST API (no WebSocket dependency)
             Task {
                 do {
-                    let response = try await RestAPIClient.shared.sendMessage(
+                    let response = try await MessagingAPI.shared.sendMessage(
                         recipientId: recipientId,
                         ephemeralPublicKey: components.ephemeralPublicKey,
                         messageNumber: components.messageNumber,
@@ -937,8 +963,11 @@ class ChatViewModel: ObservableObject {
     private func saveMessage(_ message: ChatMessage, decryptedContent: String, isSentByMe: Bool, status: DeliveryStatus, replyTo: Message? = nil, localThumbnails: [Data] = [], suiteId: UInt16) {
         Log.debug("💾 Saving message \(message.id), isSentByMe: \(isSentByMe), status: \(status)", category: "ChatViewModel")
 
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", message.id)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let messagePredicate = NSPredicate(format: "id == %@", message.id)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, messagePredicate])
 
         let messageTimestamp = Date(timeIntervalSince1970: TimeInterval(message.timestamp))
         let isNewMessage: Bool
@@ -952,6 +981,7 @@ class ChatViewModel: ObservableObject {
             Log.debug("✨ Creating new message \(message.id)", category: "ChatViewModel")
             let newMessage = Message(context: viewContext)
             newMessage.id = message.id
+            newMessage.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
             newMessage.fromUserId = message.from
             newMessage.toUserId = message.to
             newMessage.encryptedContent = message.content
@@ -1005,17 +1035,19 @@ class ChatViewModel: ObservableObject {
             }
             
             Log.debug("✅ Message saved to Core Data", category: "ChatViewModel")
-            // Messages will be reloaded via NotificationCenter observer
-            reloadMessages()
-            Log.debug("📊 After reloadMessages: \(messages.count) messages", category: "ChatViewModel")
+            // ✅ REFACTOR: FRC will automatically update messages array via delegate
+            Log.debug("📊 Messages will be updated by FRC. Current count: \(messages.count)", category: "ChatViewModel")
         } catch {
             Log.error("Failed to save or update message: \(error.localizedDescription)", category: "ChatViewModel")
         }
     }
 
     private func updateMessageStatus(messageId: String, status: DeliveryStatus) {
-        let fetchRequest: NSFetchRequest<Message> = Message.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", messageId)
+        let fetchRequest = Message.fetchRequestForCurrentUser()
+        // Combine with additional predicate
+        let ownerPredicate = fetchRequest.predicate!
+        let messagePredicate = NSPredicate(format: "id == %@", messageId)
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, messagePredicate])
 
         if let message = try? viewContext.fetch(fetchRequest).first {
             message.deliveryStatus = status
@@ -1028,6 +1060,27 @@ class ChatViewModel: ObservableObject {
             } catch {
                 Log.error("❌ Failed to save message status: \(error)", category: "ChatViewModel")
             }
+        }
+    }
+}
+
+// MARK: - NSFetchedResultsControllerDelegate
+
+extension ChatViewModel: NSFetchedResultsControllerDelegate {
+    /// Called when FRC finishes processing changes to Core Data
+    nonisolated func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        // ✅ FIX: Synchronous update to prevent UI rendering deleted objects
+        // MainActor.assumeIsolated is safe here because FRC calls this on main thread
+        MainActor.assumeIsolated {
+            // ✅ REFACTOR: Automatic sync from Core Data - no manual array management!
+            self.messages = controller.fetchedObjects as? [Message] ?? []
+            Log.debug("🔄 FRC updated messages: \(self.messages.count) total", category: "ChatViewModel")
+            
+            // Update pagination tracking
+            if let first = self.messages.first {
+                self.oldestLoadedTimestamp = first.timestamp
+            }
+            self.allLoadedMessageIds = Set(self.messages.map { $0.id })
         }
     }
 }

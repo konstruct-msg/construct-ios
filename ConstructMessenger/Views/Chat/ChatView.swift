@@ -104,6 +104,8 @@ struct ChatView: View {
                                         .frame(height: spacingAfterMessage(at: index, in: filteredMessages))
                                 }
                             }
+                            .listRowBackground(Color.clear)  // ✅ FIX: Remove default selection background
+                            .listRowInsets(EdgeInsets())  // ✅ FIX: Remove default list row insets
                             .onAppear {
 
                                 if index == filteredMessages.count - 1 && shouldScrollToBottom && !hasScrolledToBottom {
@@ -213,6 +215,8 @@ struct ChatView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbarBackground(.visible, for: .navigationBar)  // ✅ FIX: Make navbar opaque
+        .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)  // ✅ FIX: Set background color
         .toolbar(content: toolbarContent)
         .gesture(
             DragGesture(minimumDistance: 10)

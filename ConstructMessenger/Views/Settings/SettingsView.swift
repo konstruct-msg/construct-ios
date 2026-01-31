@@ -154,21 +154,23 @@ struct SettingsView: View {
                     Text("preferences")
                 }
 
-                // MARK: - Debug Section
+                // MARK: - Debug Section (Developer Mode Only)
                 #if DEBUG
-                Section {
-                    NavigationLink(destination: DebugLogsView()) {
-                        Label {
-                            Text("Debug Logs")
-                        } icon: {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .foregroundColor(.gray)
+                if DeveloperMode.shared.showDebugLogsSection {
+                    Section {
+                        NavigationLink(destination: DebugLogsView()) {
+                            Label {
+                                Text("Debug Logs")
+                            } icon: {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                    .foregroundColor(.gray)
+                            }
                         }
+                    } header: {
+                        Text("Developer")
+                    } footer: {
+                        Text("Debug build only - Export logs for troubleshooting")
                     }
-                } header: {
-                    Text("Developer")
-                } footer: {
-                    Text("Debug build only - Export logs for troubleshooting")
                 }
                 #endif
 
@@ -184,6 +186,10 @@ struct SettingsView: View {
                         Spacer()
                         Text("Construct v\(AppConstants.appVersion)")
                             .foregroundColor(.secondary)
+                            .onTapGesture {
+                                // Secret: tap 10 times to enable developer mode
+                                DeveloperMode.shared.registerVersionTap()
+                            }
                     }
                 } header: {
                     Text("about")

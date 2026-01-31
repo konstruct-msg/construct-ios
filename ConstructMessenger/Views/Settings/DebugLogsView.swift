@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct DebugLogsView: View {
+    @StateObject private var developerMode = DeveloperMode.shared
     @State private var isLoggingEnabled = LogCollector.shared.isEnabled
     @State private var logSize: Int64 = 0
     @State private var showingShareSheet = false
@@ -19,6 +20,22 @@ struct DebugLogsView: View {
     
     var body: some View {
         List {
+            // MARK: - Developer Mode Warning
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Developer Mode")
+                            .font(.headline)
+                    }
+                    
+                    Text("Log collection is ONLY available in DEBUG builds with Developer Mode enabled. Completely disabled in production for security.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
             // MARK: - Status Section
             Section {
                 HStack {
@@ -41,6 +58,7 @@ struct DebugLogsView: View {
             // MARK: - Control Section
             Section {
                 Toggle("Enable Log Collection", isOn: $isLoggingEnabled)
+                    .disabled(!developerMode.canEnableLogCollection)
                     .onChange(of: isLoggingEnabled) { newValue in
                         LogCollector.shared.isEnabled = newValue
                         updateLogSize()

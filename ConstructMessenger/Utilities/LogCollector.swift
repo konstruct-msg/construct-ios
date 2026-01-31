@@ -29,14 +29,28 @@ class LogCollector {
     
     /// Whether logging to file is enabled
     var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "LogCollector.isEnabled") }
+        get {
+            #if DEBUG
+            return UserDefaults.standard.bool(forKey: "LogCollector.isEnabled")
+            #else
+            return false // ALWAYS disabled in production
+            #endif
+        }
         set {
-            UserDefaults.standard.set(newValue, forKey: "LogCollector.isEnabled")
-            if newValue {
-                Log.info("📝 Log collection enabled", category: "LogCollector")
-            } else {
-                Log.info("📝 Log collection disabled", category: "LogCollector")
+            #if DEBUG
+            // Only allow enabling in DEBUG builds with developer mode
+            if DeveloperMode.shared.canEnableLogCollection {
+                UserDefaults.standard.set(newValue, forKey: "LogCollector.isEnabled")
+                if newValue {
+                    Log.info("📝 Log collection enabled", category: "LogCollector")
+                } else {
+                    Log.info("📝 Log collection disabled", category: "LogCollector")
+                }
             }
+            #else
+            // Production: do nothing, always disabled
+            UserDefaults.standard.set(false, forKey: "LogCollector.isEnabled")
+            #endif
         }
     }
     
@@ -63,7 +77,13 @@ class LogCollector {
     
     /// Append log message to file
     func append(level: String, category: String, message: String) {
+        // Production safety: double-check even if isEnabled somehow got set
+        #if !DEBUG
+        return // NEVER log to file in production builds
+        #endif
+        
         guard isEnabled else { return }
+        guard DeveloperMode.shared.canEnableLogCollection else { return }
         
         queue.async { [weak self] in
             guard let self = self else { return }

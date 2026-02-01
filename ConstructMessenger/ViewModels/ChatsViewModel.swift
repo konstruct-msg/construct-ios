@@ -707,9 +707,9 @@ class ChatsViewModel: ObservableObject {
                let type = jsonDict["type"] as? String,
                type == "profile" {
                 // It's a profile message - try to parse it
-                if let profileData = parseProfileMessage(decryptedContent) {
+                if let profileData = ProfileSharingManager.shared.parseProfileMessage(decryptedContent) {
                     Log.info("📥 Received profile message from \(otherUserId)", category: "ChatsViewModel")
-                    handleProfileMessage(profileData, from: otherUserId)
+                    ProfileSharingManager.shared.handleProfileMessage(profileData, from: otherUserId, in: viewContext!)
                     // Don't save profile messages as regular chat messages
                     return
                 } else {
@@ -863,158 +863,7 @@ class ChatsViewModel: ObservableObject {
         throw lastError ?? NetworkError.connectionFailed
     }
     
-    // MARK: - Profile Sharing
-    private func parseProfileMessage(_ content: String) -> ProfileShareData? {
-        guard let data = content.data(using: .utf8) else {
-            Log.debug("❌ parseProfileMessage: Failed to convert content to data", category: "ChatsViewModel")
-            return nil
-        }
-        
-        // Debug: Log the content being parsed
-        Log.debug("📥 Attempting to parse profile message, content length: \(content.count)", category: "ChatsViewModel")
-        Log.debug("   Content preview: \(content.prefix(200))", category: "ChatsViewModel")
-        
-        // First, try to parse as generic JSON to check if it looks like a profile message
-        if let jsonDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let type = jsonDict["type"] as? String,
-           type == "profile" {
-            // It's a profile message, try to decode it properly
-            do {
-                let json = try JSONDecoder().decode(ProfileShareData.self, from: data)
-                Log.info("✅ Successfully parsed profile message: displayName=\(json.displayName), avatarMediaId=\(json.avatarMediaId ?? "nil"), avatarData=\(json.avatarData != nil ? "present" : "nil")", category: "ChatsViewModel")
-                return json
-            } catch {
-                Log.error("❌ parseProfileMessage: Failed to decode ProfileShareData: \(error)", category: "ChatsViewModel")
-                // Even if decoding fails, we know it's a profile message, so return nil to prevent it from being saved as regular message
-                return nil
-            }
-        }
-        
-        // Not a profile message
-        Log.debug("❌ parseProfileMessage: Content is not a profile message", category: "ChatsViewModel")
-        return nil
-    }
-    
-    private func handleProfileMessage(_ profileData: ProfileShareData, from userId: String) {
-        guard let context = viewContext else { return }
-        
-        let userFetchRequest = User.fetchRequestForCurrentUser()
-        // Combine with additional predicate
-        let ownerPredicate = userFetchRequest.predicate!
-        let userIdPredicate = NSPredicate(format: "id == %@", userId)
-        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, userIdPredicate])
-        
-        guard let user = try? context.fetch(userFetchRequest).first else {
-            Log.error("❌ User not found for profile update: \(userId)", category: "ChatsViewModel")
-            return
-        }
-        
-        // Update user's display name
-        user.displayName = profileData.displayName
-        
-        // Update avatar if provided
-        // Priority: new format (Media Upload API) > old format (base64)
-        if let avatarMediaId = profileData.avatarMediaId,
-           let avatarMediaUrl = profileData.avatarMediaUrl,
-           let avatarMediaKey = profileData.avatarMediaKey {
-            // New format: download and decrypt media from Media Upload API
-            Task {
-                do {
-                    Log.info("📥 Downloading avatar from Media Upload API: \(avatarMediaId)", category: "ChatsViewModel")
-                    
-                    // Use MediaManager for avatar download and decryption
-                    let decryptedData = try await MediaManager.shared.downloadAndDecryptAvatar(
-                        mediaUrl: avatarMediaUrl,
-                        mediaKeyBase64: avatarMediaKey
-                    )
-                    
-                    await MainActor.run {
-                        user.avatarData = decryptedData
-                        user.isSharingWithMe = true
-                        user.sharedWithMeAt = Date()
-                        
-                        do {
-                            try context.save()
-                            Log.info("✅ Avatar downloaded and saved for user \(userId)", category: "ChatsViewModel")
-                        } catch {
-                            Log.error("❌ Failed to save avatar: \(error)", category: "ChatsViewModel")
-                        }
-                    }
-                } catch {
-                    Log.error("❌ Failed to download avatar: \(error.localizedDescription)", category: "ChatsViewModel")
-                    // Continue - displayName was already updated
-                }
-            }
-        } else if let avatarBase64 = profileData.avatarData,
-                  let avatarData = Data(base64Encoded: avatarBase64) {
-            // Old format: base64 data (backward compatibility)
-            user.avatarData = avatarData
-        }
-        
-        // Mark as sharing with us
-        user.isSharingWithMe = true
-        user.sharedWithMeAt = Date()
-        
-        // ✅ Add system message to chat
-        addSystemMessageToChat(
-            userId: userId,
-            displayName: profileData.displayName,
-            hasAvatar: profileData.avatarMediaId != nil || profileData.avatarData != nil
-        )
-        
-        do {
-            try context.save()
-            Log.info("✅ Profile data updated for user \(userId): displayName=\(profileData.displayName)", category: "ChatsViewModel")
-        } catch {
-            Log.error("❌ Failed to save profile data: \(error)", category: "ChatsViewModel")
-        }
-    }
-    
-    /// Add system message to chat when profile is shared
-    private func addSystemMessageToChat(userId: String, displayName: String, hasAvatar: Bool) {
-        guard let context = viewContext else { return }
-        
-        // Find or create chat
-        let chatFetchRequest = Chat.fetchRequestForCurrentUser()
-        // Combine with additional predicate
-        let ownerPredicate = chatFetchRequest.predicate!
-        let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", userId)
-        chatFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, otherUserPredicate])
-        
-        guard let chat = try? context.fetch(chatFetchRequest).first else {
-            Log.error("❌ Chat not found for user \(userId)", category: "ChatsViewModel")
-            return
-        }
-        
-        // Create system message
-        let message = Message(context: context)
-        message.id = UUID().uuidString
-        message.setOwnerToCurrentUser()  // ✅ MULTI-ACCOUNT: Set owner
-        message.timestamp = Date()
-        message.chat = chat
-        message.fromUserId = userId
-        message.toUserId = SessionManager.shared.currentUserId ?? ""
-        message.isSentByMe = false
-        message.encryptedContent = ""  // System messages don't need encryption
-        
-        // Use special prefix to mark as system message
-        let icon = hasAvatar ? "📸" : "👤"
-        message.decryptedContent = "[SYSTEM]\(icon) \(displayName) shared their profile"
-        
-        message.deliveryStatus = .delivered
-        
-        // Update chat's last message
-        let systemMessageText = message.decryptedContent?.replacingOccurrences(of: "[SYSTEM]", with: "") ?? ""
-        chat.lastMessageText = Chat.formatPreviewText(systemMessageText)
-        chat.lastMessageTime = message.timestamp
-        
-        do {
-            try context.save()
-            Log.info("✅ Added system message for profile share from \(userId)", category: "ChatsViewModel")
-        } catch {
-            Log.error("❌ Failed to save system message: \(error)", category: "ChatsViewModel")
-        }
-    }
+    // MARK: - Message Persistence
     
     private func saveMessage(for chat: Chat, with messageData: ChatMessage, decryptedContent: String) {
         guard let context = viewContext else { return }

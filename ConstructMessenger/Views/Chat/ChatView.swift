@@ -115,16 +115,11 @@ struct ChatView: View {
                                 // ✅ Auto-scroll to bottom on last message appear
                                 if index == filteredMessages.count - 1 && scrollManager.shouldScrollToBottom && !scrollManager.hasScrolledToBottom {
                                     DispatchQueue.main.async {
-                                        scrollManager.scrollToBottom()
+                                        scrollManager.scrollToBottom(messageId: message.id)
                                     }
                                 }
                             }
                         }
-                        
-                        // ✅ Invisible anchor at the bottom for scrollToBottom()
-                        Color.clear
-                            .frame(height: 1)
-                            .id("bottom")
                     }
                     .padding()
                     .background(
@@ -156,8 +151,8 @@ struct ChatView: View {
                     LocalNotificationManager.shared.clearBadge()
                     
                     // ✅ Scroll to bottom instantly (no animation) on initial load
-                    if !viewModel.messages.isEmpty {
-                        scrollManager.scrollToBottom()
+                    if !viewModel.messages.isEmpty, let lastMessage = filteredMessages.last {
+                        scrollManager.scrollToBottom(messageId: lastMessage.id)
                         scrollManager.hasScrolledToBottom = true
                     }
                 }
@@ -170,7 +165,9 @@ struct ChatView: View {
                     if scrollManager.shouldScrollToBottom && !isSearchActive && !viewModel.messages.isEmpty {
                         // ✅ Longer delay for media messages to render
                         DispatchQueue.main.asyncAfter(deadline: .now() + ChatViewConstants.MessageDelay.mediaRender) {
-                            scrollManager.scrollToBottom()
+                            if let lastMessage = filteredMessages.last {
+                                scrollManager.scrollToBottom(messageId: lastMessage.id)
+                            }
                         }
                     }
                 }
@@ -183,7 +180,9 @@ struct ChatView: View {
                     } else if newValue.isEmpty {
                         // When search is cleared, scroll back to bottom
                         scrollManager.shouldScrollToBottom = true
-                        scrollManager.scrollToBottom()
+                        if let lastMessage = filteredMessages.last {
+                            scrollManager.scrollToBottom(messageId: lastMessage.id)
+                        }
                     }
                 }
                 .onChange(of: isSearchActive) { active in
@@ -197,7 +196,9 @@ struct ChatView: View {
                         // When search is dismissed, scroll back to bottom
                         searchText = ""
                         scrollManager.shouldScrollToBottom = true
-                        scrollManager.scrollToBottom()
+                        if let lastMessage = filteredMessages.last {
+                            scrollManager.scrollToBottom(messageId: lastMessage.id)
+                        }
                     }
                 }
                 .onChange(of: isEditMode) { editMode in
@@ -375,7 +376,9 @@ struct ChatView: View {
                 
                 // ✅ FIX: Scroll to bottom after sending (longer delay for media)
                 DispatchQueue.main.asyncAfter(deadline: .now() + ChatViewConstants.MessageDelay.scrollAfterSend) {
-                    scrollManager.scrollToBottom()
+                    if let lastMessage = filteredMessages.last {
+                        scrollManager.scrollToBottom(messageId: lastMessage.id)
+                    }
                 }
             },
             onCancelReply: {

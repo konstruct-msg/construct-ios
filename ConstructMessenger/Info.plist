@@ -16,6 +16,11 @@
 	<string>Construct Messenger needs access to your microphone to record and send voice messages.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>Construct Messenger sends you notifications for new messages.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIUserInterfaceStyle</key>
 	<string>Automatic</string>
 	<key>UIBackgroundModes</key>

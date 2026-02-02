@@ -99,7 +99,7 @@ struct SettingsView: View {
                             Text("notifications")
                         } icon: {
                             Image(systemName: "bell.fill")
-                                .foregroundColor(.red)
+                                .foregroundColor(.cyan)
                         }
                     }
                 } header: {

@@ -140,11 +140,12 @@ struct ContactQRCodeView: View {
     
     private func generateInitialQRCode() {
         do {
-            let payload = try generator.generateQRPayload(userId: userId)
-            qrPayload = payload
+            // ✅ FIX: Use generateDeepLink to get full URL, not just payload
+            let deepLink = try generator.generateDeepLink(userId: userId, useHTTPS: false)
+            qrPayload = deepLink
             timeRemaining = 180 // Reset to 3 minutes
             generationError = nil
-            Log.info("✅ Generated QR code for \(username)", category: "ContactQRCodeView")
+            Log.info("✅ Generated QR code for \(username): \(deepLink.prefix(50))...", category: "ContactQRCodeView")
         } catch {
             generationError = "Failed to generate code"
             Log.error("❌ Failed to generate QR: \(error)", category: "ContactQRCodeView")

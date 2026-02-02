@@ -227,13 +227,12 @@ struct QRScannerView: View {
         let testUserId = UUID().uuidString
         
         do {
-            let invitePayload = try generator.generateQRPayload(userId: testUserId)
-            let testCode = "konstruct://add?invite=\(invitePayload)"
+            // ✅ FIX: Use generateDeepLink instead of generateQRPayload
+            let testCode = try generator.generateDeepLink(userId: testUserId, useHTTPS: false)
             
             print("🧪 QRScannerView: Simulating Dynamic Invite scan")
             print("   Generated URL: \(testCode.prefix(100))...")
             print("   UserId: \(testUserId)")
-            print("   Payload size: \(invitePayload.count) bytes")
             handleScannedCode(testCode)
         } catch {
             print("❌ Failed to generate test invite: \(error)")

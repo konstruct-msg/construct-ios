@@ -145,6 +145,8 @@ struct DebugLogsView: View {
         .navigationTitle("Debug Logs")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            // ✅ Sync state with LogCollector on every appear
+            isLoggingEnabled = LogCollector.shared.isEnabled
             updateLogSize()
         }
         .sheet(isPresented: $showingShareSheet) {

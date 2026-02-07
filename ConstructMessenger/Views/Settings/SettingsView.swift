@@ -14,6 +14,7 @@ struct SettingsView: View {
     @ObservedObject private var connectionStatus = ConnectionStatusManager.shared
     @State private var showingQRCode = false
     @State private var linkCopied = false
+   
     
     private let inviteGenerator = InviteGenerator()
 
@@ -26,8 +27,8 @@ struct SettingsView: View {
                         Label {
                             Text("account")
                         } icon: {
-                            Image(systemName: "person.circle.fill")
-                                .foregroundColor(.blue)
+                            Image(systemName: "person.circle")
+                                .foregroundColor(.gray)
                         }
                     }
                     
@@ -39,7 +40,7 @@ struct SettingsView: View {
                                 .foregroundColor(.primary)
                         } icon: {
                             Image(systemName: "qrcode")
-                                .foregroundColor(.blue)
+                                .foregroundColor(.gray)
                         }
                     }
 
@@ -51,46 +52,37 @@ struct SettingsView: View {
                                 .foregroundColor(.primary)
                         } icon: {
                             Image(systemName: linkCopied ? "checkmark.circle.fill" : "link")
-                                .foregroundColor(linkCopied ? .green : .blue)
+                                .foregroundColor(linkCopied ? .green : .gray)
                         }
                     }
                     .disabled(linkCopied)
-                } header: {
-                    Text("profile")
-                } footer: {
-                    Text("@\(viewModel.username)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
 
-                // MARK: - Privacy & Security Section
+                // MARK: - Security Section
                 Section {
-                    Button(role: .destructive) {
-                        viewModel.showResetAllSessionsConfirm = true
-                    } label: {
+                    
+                }
+                
+                // MARK: - App Settings Section
+
+                
+                Section {
+                    NavigationLink(destination: SecurityView()) {
                         Label {
-                            Text("Reset All Sessions")
-                                .foregroundColor(.red)
+                            Text("Security")
                         } icon: {
-                            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                                .foregroundColor(.red)
+                            Image(systemName: "lock")
+                                .foregroundColor(.gray)
                         }
                     }
-                } header: {
-                    Text("privacy_security")
-                } footer: {
-                    Text("Reset all encrypted sessions with your contacts. Use if you suspect your encryption keys are compromised.")
-                        .font(.caption)
-                }
-
-                // MARK: - App Settings Section
-                Section {
+                    
+                    
                     NavigationLink(destination: AppearanceSettingsView()) {
                         Label {
                             Text("appearance")
                         } icon: {
-                            Image(systemName: "paintbrush.fill")
-                                .foregroundColor(.purple)
+                            Image(systemName: "paintbrush")
+                                .foregroundColor(.gray)
                         }
                     }
                     
@@ -98,32 +90,8 @@ struct SettingsView: View {
                         Label {
                             Text("notifications")
                         } icon: {
-                            Image(systemName: "bell.fill")
-                                .foregroundColor(.cyan)
-                        }
-                    }
-                } header: {
-                    Text("app_settings")
-                }
-
-                // MARK: - Advanced Section
-                Section {
-                    NavigationLink(destination: NetworkSettingsView()) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("network")
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(connectionStatus.isConnected ? Color.green : Color.red)
-                                        .frame(width: 6, height: 6)
-                                    Text(connectionStatus.connectionStatus.localizedKey)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        } icon: {
-                            Image(systemName: "network")
-                                .foregroundColor(.green)
+                            Image(systemName: "bell")
+                                .foregroundColor(.gray)
                         }
                     }
                     
@@ -141,12 +109,30 @@ struct SettingsView: View {
                                 }
                             }
                         } icon: {
-                            Image(systemName: "arrow.clockwise.circle.fill")
-                                .foregroundColor(.orange)
+                            Image(systemName: "arrow.clockwise.circle")
+                                .foregroundColor(.gray)
                         }
                     }
-                } header: {
-                    Text("advanced")
+                    
+                    NavigationLink(destination: NetworkSettingsView()) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("network")
+                                HStack(spacing: 4) {
+                                    Circle()
+                                        .fill(connectionStatus.isConnected ? Color.green : Color.red)
+                                        .frame(width: 6, height: 6)
+                                    Text(connectionStatus.connectionStatus.localizedKey)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "network")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    
                 }
 
                 // MARK: - About Section
@@ -155,8 +141,8 @@ struct SettingsView: View {
                         Label {
                             Text("version")
                         } icon: {
-                            Image(systemName: "info.circle.fill")
-                                .foregroundColor(.orange)
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.gray)
                         }
                         Spacer()
                         Text("Construct v\(AppConstants.appVersion)")
@@ -179,10 +165,9 @@ struct SettingsView: View {
                             Spacer()
                         }
                     }
-                } header: {
-                    Text("about")
                 }
             }
+            .padding(.vertical)
             .navigationTitle("settings")
             .onAppear {
                 viewModel.setContext(viewContext)
@@ -194,51 +179,41 @@ struct SettingsView: View {
                     username: viewModel.username
                 )
             }
-            .confirmationDialog(
-                "Reset All Sessions?",
-                isPresented: $viewModel.showResetAllSessionsConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Reset All", role: .destructive) {
-                    Task {
-                        await ChatsViewModel().sendEndSessionToAllContacts(
-                            reason: "user_requested_reset_all"
-                        )
-                        Log.info("✅ All sessions reset by user", category: "SettingsView")
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will reset encrypted sessions with all your contacts. They will need to send you a message to re-establish encryption.")
-            }
         }
     }
 
     // MARK: - Contact Link
     private var contactLink: String {
-        guard let userId = authViewModel.currentUserId,
-              !authViewModel.currentUsername.isEmpty else {
+        guard let userId = authViewModel.currentUserId else {
+            Log.error("Cannot generate contact link: userId is nil", category: "SettingsView")
             return ""
         }
         
-        // ✅ Extract server hostname from APIBaseURL (same as QR code)
-        let serverURL = ServerConfig.defaultWebsocketURL
-        let serverHostname: String
+        Log.info("Generating contact link for userId: \(userId)", category: "SettingsView")
         
-        if let url = URL(string: serverURL), let host = url.host {
-            serverHostname = host
-        } else {
-            serverHostname = "konstruct.cc" // Fallback
-        }
+        // ✅ Use public invite host (.well-known lives here)
+        let serverHostname = ServerConfig.inviteHost
         
         // ✅ Generate Dynamic Invite deep link (HTTPS format for sharing)
         do {
-            return try inviteGenerator.generateDeepLink(userId: userId, server: serverHostname, useHTTPS: true)
+            // Get deviceId from Keychain
+            guard let deviceId = KeychainManager.shared.loadDeviceID() else {
+                Log.error("Cannot generate link: deviceId not found in Keychain", category: "SettingsView")
+                return ""
+            }
+            
+            let link = try inviteGenerator.generateDeepLink(
+                userId: userId,
+                deviceId: deviceId,
+                server: serverHostname,
+                useHTTPS: true
+            )
+            
+            Log.info("✅ Generated deep link: \(link.prefix(50))...", category: "SettingsView")
+            return link
         } catch {
-            // ❌ Fallback to legacy format if generation fails
-            let username = authViewModel.currentUsername
-            let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? username
-            return "https://\(serverHostname)/c/\(userId)?username=\(encodedUsername)"
+            Log.error("Failed to generate invite link: \(error)", category: "SettingsView")
+            return ""
         }
     }
 
@@ -260,7 +235,6 @@ struct SettingsView: View {
     }
 }
 
-#if DEBUG
 #Preview {
     let container = PreviewHelpers.createPreviewContainer()
     let context = container.viewContext
@@ -270,5 +244,5 @@ struct SettingsView: View {
     return SettingsView()
         .environment(\.managedObjectContext, context)
         .environmentObject(authViewModel)
+        .environmentObject(SecurityViewModel())
 }
-#endif

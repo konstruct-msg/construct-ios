@@ -3,24 +3,12 @@
 <plist version="1.0">
 <dict>
 	<key>APIBaseURL</key>
-	<string>https://ams.konstruct.cc</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Construct Messenger needs access to your local network to check network connectivity and ensure reliable message delivery.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Construct Messenger needs access to your camera to send photos and videos.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Construct Messenger needs access to your photo library to send photos and videos.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Construct Messenger needs permission to save photos and videos to your library.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Construct Messenger needs access to your microphone to record and send voice messages.</string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>Construct Messenger sends you notifications for new messages.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
+	<string>https://construct-api-gateway.fly.dev</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.construct.message-refresh</string>
+		<string>com.construct.maintenance</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,32 +22,20 @@
 			</array>
 		</dict>
 	</array>
-	<key>UIUserInterfaceStyle</key>
-	<string>Automatic</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to unlock Construct Messenger.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Construct Messenger sends you notifications for new messages.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>processing</string>
 		<string>remote-notification</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.construct.message-refresh</string>
-		<string>com.construct.maintenance</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 </dict>
 </plist>

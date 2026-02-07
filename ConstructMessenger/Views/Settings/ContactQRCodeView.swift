@@ -65,9 +65,15 @@ struct ContactQRCodeView: View {
                     }
 
                     VStack(spacing: 8) {
-                        Text("@\(username)")
-                            .font(.headline)
-                            .foregroundColor(.primary)
+                        if !username.isEmpty {
+                            Text("@\(username)")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                        } else {
+                            Text(DisplayNameGenerator.generate(from: userId))
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                        }
 
                         // Countdown timer
                         if timeRemaining > 0 {
@@ -139,35 +145,40 @@ struct ContactQRCodeView: View {
     // MARK: - QR Code Generation
     
     private func generateInitialQRCode() {
+        Log.info("🔐 Starting QR code generation...", category: "ContactQRCodeView")
+        Log.info("   - userId: \(userId)", category: "ContactQRCodeView")
+        Log.info("   - username: \(username)", category: "ContactQRCodeView")
+        
+        // Check if device is registered
+        if !KeychainManager.shared.isDeviceRegistered() {
+            generationError = "Device not registered"
+            Log.error("❌ Cannot generate QR: Device not registered in Keychain", category: "ContactQRCodeView")
+            return
+        }
+        
         do {
-            // ✅ Extract server hostname from APIBaseURL
-            let serverURL = ServerConfig.defaultWebsocketURL
-            let serverHostname: String
+            // ✅ Use public invite host (.well-known lives here)
+            let serverHostname = ServerConfig.inviteHost
+            Log.debug("🔐 Using server hostname for QR: \(serverHostname)", category: "ContactQRCodeView")
             
-            if let url = URL(string: serverURL), let host = url.host {
-                serverHostname = host
-                Log.debug("🔐 Using server hostname for QR: \(serverHostname)", category: "ContactQRCodeView")
-            } else {
-                serverHostname = "konstruct.cc" // Fallback
-                Log.info("⚠️ Could not extract hostname from \(serverURL), using fallback", category: "ContactQRCodeView")
+            // ✅ Get deviceId from Keychain
+            guard let deviceId = KeychainManager.shared.loadDeviceID() else {
+                generationError = "Device ID not found"
+                Log.error("❌ Cannot generate QR: deviceId not found in Keychain", category: "ContactQRCodeView")
+                return
             }
             
-            // ✅ DEBUG: Print our own verifying key for comparison
-            Task {
-                do {
-                    let bundle = try await CryptoAPI.shared.getPublicKey(userId: userId)
-                    print("🔐 SIGN: Our verifying key (from server): \(bundle.verifyingKey)")
-                } catch {
-                    print("⚠️ SIGN: Could not fetch our own public key: \(error)")
-                }
-            }
-            
-            // ✅ FIX: Use generateDeepLink with correct server hostname
-            let deepLink = try generator.generateDeepLink(userId: userId, server: serverHostname, useHTTPS: false)
+            // ✅ Generate deep link with both userId and deviceId
+            let deepLink = try generator.generateDeepLink(
+                userId: userId,
+                deviceId: deviceId,
+                server: serverHostname,
+                useHTTPS: false
+            )
             qrPayload = deepLink
             timeRemaining = 180 // Reset to 3 minutes
             generationError = nil
-            Log.info("✅ Generated QR code for \(username): \(deepLink.prefix(50))...", category: "ContactQRCodeView")
+            Log.info("✅ Generated QR code for \(username): userId=\(userId.prefix(8))..., deviceId=\(deviceId)", category: "ContactQRCodeView")
         } catch {
             generationError = "Failed to generate code"
             Log.error("❌ Failed to generate QR: \(error)", category: "ContactQRCodeView")

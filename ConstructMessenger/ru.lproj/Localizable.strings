@@ -111,28 +111,29 @@
 "share_contact" = "Поделиться контактом";
 "share_contact_footer" = "Поделитесь своим QR-кодом или ссылкой, чтобы другие могли добавить вас в контакты";
 
-// TODO: Add Security section strings
-// "security" = "Security";
-// "pin_code" = "PIN Code";
-// "enable_pin_code" = "Enable PIN Code";
-// "change_pin_code" = "Change PIN Code";
-// "enter_pin_code" = "Enter PIN Code";
-// "create_pin_code" = "Create PIN Code";
-// "confirm_pin_code" = "Confirm PIN Code";
-// "pin_code_length" = "PIN must be 6-10 digits";
-// "pin_codes_dont_match" = "PIN codes don't match";
-// "wrong_pin_code" = "Wrong PIN Code";
-// "attempts_remaining" = "%d attempts remaining";
-// "pin_locked" = "Too many failed attempts. Try again later";
-// "face_id" = "Face ID";
-// "touch_id" = "Touch ID";
-// "use_biometric" = "Use %@ to unlock";
-// "auto_lock" = "Auto-Lock";
-// "auto_lock_immediate" = "Immediate";
-// "auto_lock_1min" = "After 1 minute";
-// "auto_lock_5min" = "After 5 minutes";
-// "auto_lock_never" = "Never";
-// See: TODO.md for complete requirements
+"pin_code" = "ПИН-код";
+"enable_pin_code" = "Включить ПИН-код";
+"disable_pin_code" = "Выключить ПИН-код";
+"change_pin_code" = "Сменить ПИН-код";
+"current_pin_code" = "Текущий ПИН-код";
+"enter_pin_code" = "Введите ПИН-код";
+"create_pin_code" = "Создать ПИН-код";
+"confirm_pin_code" = "Подтвердите ПИН-код";
+"pin_code_length" = "ПИН-код должен содержать 6-12 цифр";
+"pin_codes_dont_match" = "ПИН-коды не совпадают";
+"wrong_pin_code" = "Неверный ПИН-код";
+"face_id" = "Face ID";
+"touch_id" = "Touch ID";
+"biometric" = "Биометрия";
+"use_biometric" = "Использовать %@ для разблокировки";
+"use_pin_code" = "Ввести ПИН-код";
+"unlock" = "Разблокировать";
+"save" = "Сохранить";
+"continue" = "Продолжить";
+"enable_biometric" = "Включить %@?";
+"biometric_unavailable" = "Биометрия недоступна на этом устройстве.";
+"not_now" = "Не сейчас";
+"disable" = "Выключить";
 
 // MARK: - Settings -> My QR Code
 "my_qr_code" = "My QR Code";
@@ -291,4 +292,10 @@
 "stop_sharing_profile" = "Прекратить делиться профилем";
 "share_my_profile" = "Поделиться моим профилем";
 "share_profile_explanation" = "Поделитесь своим именем и фотографией с этим контактом";
+"username_invalid_chars" = "Имя пользователя может содержать только буквы, цифры и подчёркивание.";
+"username_too_short" = "Имя пользователя должно быть не короче 3 символов.";
+"username_checking" = "Проверяем доступность...";
+"username_available" = "Имя пользователя доступно.";
+"username_unavailable" = "Имя пользователя уже занято.";
+"username_check_failed" = "Не удалось проверить имя пользователя. Попробуйте ещё раз.";
 "new_messages" = "Новые сообщения";

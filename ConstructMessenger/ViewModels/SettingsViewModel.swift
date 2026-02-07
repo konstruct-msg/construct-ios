@@ -16,7 +16,8 @@ class SettingsViewModel: ObservableObject {
     @Published var username: String = ""
     @Published var userId: String = ""
     @Published var profileImage: UIImage?
-    @Published var showResetAllSessionsConfirm = false  // ← NEW
+    @Published var showResetAllSessionsConfirm = false
+    @Published var showDeleteKeysConfirm = false  // ← NEW for developer mode
 
     private var viewContext: NSManagedObjectContext?
 
@@ -53,11 +54,8 @@ class SettingsViewModel: ObservableObject {
             return
         }
 
-        let fetchRequest = User.fetchRequestForCurrentUser()
-        // Combine with additional predicate
-        let ownerPredicate = fetchRequest.predicate!
-        let idPredicate = NSPredicate(format: "id == %@", userId)
-        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, idPredicate])
+        let fetchRequest = User.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", userId)
         fetchRequest.fetchLimit = 1
 
         if let user = try? context.fetch(fetchRequest).first,
@@ -86,11 +84,8 @@ class SettingsViewModel: ObservableObject {
         }
 
         // Find current user in Core Data
-        let fetchRequest = User.fetchRequestForCurrentUser()
-        // Combine with additional predicate
-        let ownerPredicate = fetchRequest.predicate!
-        let idPredicate = NSPredicate(format: "id == %@", userId)
-        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, idPredicate])
+        let fetchRequest = User.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", userId)
         fetchRequest.fetchLimit = 1
 
         do {
@@ -124,11 +119,8 @@ class SettingsViewModel: ObservableObject {
 
         let trimmed = name.trimmingCharacters(in: .whitespaces)
 
-        let fetchRequest = User.fetchRequestForCurrentUser()
-        // Combine with additional predicate
-        let ownerPredicate = fetchRequest.predicate!
-        let idPredicate = NSPredicate(format: "id == %@", userId)
-        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ownerPredicate, idPredicate])
+        let fetchRequest = User.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", userId)
         fetchRequest.fetchLimit = 1
 
         do {

@@ -11,27 +11,17 @@ struct AccountSettingsView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject var authViewModel: AuthViewModel
     @StateObject private var viewModel = SettingsViewModel()
-
+    
     // Profile Picture
     @State private var showingImagePicker = false
-
-    // Change Password
-    @State private var showingChangePassword = false
-    @State private var currentPassword = ""
-    @State private var newPassword = ""
-    @State private var confirmPassword = ""
-    @State private var passwordError: String?
     
-    @State private var showingLogoutConfirmation = false
     @State private var showingDeleteAccountWarning = false
     @State private var showingDeleteAccountConfirmation = false
+    @State private var showingResetSessionsWarning = false
+    @State private var showingDeleteKeysWarning = false
     @State private var deleteAccountPassword = ""
     @State private var deleteAccountError: String?
-
-    private var passwordFooterText: Text {
-        Text(String(format: NSLocalizedString("password_min_length_message", comment: ""), ValidationRules.minPasswordLength))
-    }
-
+    
     var body: some View {
         List {
             // MARK: - Profile Picture Section
@@ -64,86 +54,73 @@ struct AccountSettingsView: View {
                 .listRowBackground(Color.clear)
             }
             
-            Text("@\(viewModel.username)")
-                .fontWeight(.medium)
-                .foregroundColor(.gray)
-
+            if !viewModel.username.isEmpty {
+                Text("@\(viewModel.username)")
+                    .fontWeight(.medium)
+                    .foregroundColor(.gray)
+            } else {
+                Text(DisplayNameGenerator.generate(from: viewModel.userId))
+                    .fontWeight(.medium)
+                    .foregroundColor(.gray)
+            }
+            
             // MARK: - Account Information Section
             Section {
                 TextField("display_name", text: $viewModel.displayName)
                     .onChange(of: viewModel.displayName) { newValue in
                         viewModel.saveDisplayName(newValue, authViewModel: authViewModel)
                     }
-
+                
             } header: {
                 Text("account_information")
             }
-
-            // MARK: - Password Section
-            Section {
-                if showingChangePassword {
-                    SecureField("current_password", text: $currentPassword)
-                        .textContentType(.password)
-
-                    SecureField("new_password", text: $newPassword)
-                        .textContentType(.newPassword)
-
-                    SecureField("confirm_new_password", text: $confirmPassword)
-                        .textContentType(.newPassword)
-
-                    if let error = passwordError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-
-                    HStack {
-                        Button("cancel") {
-                            cancelPasswordChange()
-                        }
-
-                        Spacer()
-
-                        Button("change_password") {
-                            changePassword()
-                        }
-                        .disabled(!isPasswordValid)
-                    }
-                } else {
-                    Button {
-                        showingChangePassword = true
-                    } label: {
-                        Text("change_password")
-                    }
-                }
-            } header: {
-                Text("security")
-            } footer: {
-                if showingChangePassword {
-                    passwordFooterText
-                        .font(.caption)
-                }
-            }
             
-            // MARK: - Logout Section
-            Section {
-                Button {
-                    showingLogoutConfirmation = true
-                } label: {
-                    HStack {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .foregroundColor(.blue)
-                        Text("logout")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
-                }
-            }
             
             // MARK: - Danger Zone
             Section {
+                // Delete All Sessions
+                Button(role: .destructive) {
+                    showingResetSessionsWarning = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .foregroundColor(.orange)
+                            Text("Reset All Sessions")
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        
+                        Text("Reset encrypted sessions with all contacts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(.vertical, 4)
+                }
+                
+                // Delete Device Keys
+                Button(role: .destructive) {
+                    showingDeleteKeysWarning = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "key.slash.fill")
+                                .foregroundColor(.orange)
+                            Text("Delete Device Keys")
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        
+                        Text("Remove device registration and return to onboarding")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .padding(.vertical, 4)
+                }
+                
+                // Delete Account
                 Button(role: .destructive) {
                     showingDeleteAccountWarning = true
                 } label: {
@@ -169,6 +146,9 @@ struct AccountSettingsView: View {
             } header: {
                 Text("DANGER_ZONE")
                     .foregroundColor(.red)
+            } footer: {
+                Text("These actions cannot be undone. Use with caution.")
+                    .font(.caption)
             }
         }
         .navigationTitle("account")
@@ -177,14 +157,42 @@ struct AccountSettingsView: View {
             viewModel.setContext(viewContext)
             viewModel.loadUserInfo(from: authViewModel)
         }
-        .alert("logout", isPresented: $showingLogoutConfirmation) {
-            Button("cancel", role: .cancel) { }
-            Button("logout", role: .destructive) {
-                authViewModel.logout()
+        // MARK: - Reset Sessions Dialog
+        .confirmationDialog(
+            "Reset All Sessions?",
+            isPresented: $showingResetSessionsWarning,
+            titleVisibility: .visible
+        ) {
+            Button("Reset All", role: .destructive) {
+                Task {
+                    await ChatsViewModel().sendEndSessionToAllContacts(
+                        reason: "user_requested_reset_all"
+                    )
+                    Log.info("✅ All sessions reset by user", category: "AccountSettings")
+                }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("logout_confirmation")
+            Text("This will reset encrypted sessions with all your contacts. They will need to send you a message to re-establish encryption.")
         }
+        // MARK: - Delete Device Keys Dialog
+        .confirmationDialog(
+            "Delete Device Keys?",
+            isPresented: $showingDeleteKeysWarning,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Keys", role: .destructive) {
+                KeychainManager.shared.deleteDeviceKeys()
+                SessionManager.shared.clearSession()
+                Log.info("🗑️ Device keys deleted - returning to onboarding", category: "AccountSettings")
+                // Force re-check in ContentView
+                NotificationCenter.default.post(name: NSNotification.Name("DeviceKeysDeleted"), object: nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete your device keys and session. You will need to register again. Your server account will remain active.")
+        }
+        // MARK: - Delete Account Dialog
         .alert("delete_account_warning_title", isPresented: $showingDeleteAccountWarning) {
             Button("cancel", role: .cancel) { }
             Button("continue", role: .destructive) {
@@ -223,43 +231,12 @@ struct AccountSettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AccountDeleted"))) { _ in
             showingDeleteAccountConfirmation = false
-            deleteAccountPassword = ""
-            deleteAccountError = nil
         }
         .sheet(isPresented: $showingImagePicker) {
             ImagePicker(onImagePicked: { image in
                 viewModel.saveAvatar(image, authViewModel: authViewModel)
             })
         }
-    }
-
-    // MARK: - Validation
-    private var isPasswordValid: Bool {
-        !currentPassword.isEmpty &&
-        !newPassword.isEmpty &&
-        newPassword == confirmPassword &&
-        newPassword.count >= ValidationRules.minPasswordLength
-    }
-
-    // MARK: - Actions
-    private func changePassword() {
-        guard isPasswordValid else {
-            passwordError = NSLocalizedString("please_check_all_fields", comment: "")
-            return
-        }
-
-        // TODO: Implement password change API call
-        // For now, just clear the form
-        print("Changing password for user: \(viewModel.username)")
-        cancelPasswordChange()
-    }
-
-    private func cancelPasswordChange() {
-        showingChangePassword = false
-        currentPassword = ""
-        newPassword = ""
-        confirmPassword = ""
-        passwordError = nil
     }
 }
 
@@ -287,23 +264,6 @@ struct DeleteAccountConfirmationView: View {
                         .foregroundColor(.red)
                 }
                 
-                Section {
-                    SecureField("password", text: $password)
-                        .textContentType(.password)
-                        .autocapitalization(.none)
-                        .disabled(isDeleting)
-                    
-                    if let errorMessage = error {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                } header: {
-                    Text("confirm_password")
-                } footer: {
-                    Text("delete_account_password_hint")
-                        .font(.caption)
-                }
             }
             .navigationTitle("delete_my_account")
             .navigationBarTitleDisplayMode(.inline)

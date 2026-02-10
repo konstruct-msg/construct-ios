@@ -19,12 +19,12 @@ struct ChatRowView: View {
                     Image(uiImage: avatarImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 50, height: 50)
-                        .clipShape(Circle())
+                        .frame(width: AvatarStyle.chatSize, height: AvatarStyle.chatSize)
+                        .clipShape(RoundedRectangle(cornerRadius: AvatarStyle.chatCornerRadius, style: .continuous))
                 } else {
-                    Circle()
+                    RoundedRectangle(cornerRadius: AvatarStyle.chatCornerRadius, style: .continuous)
                         .fill(Color.blue)
-                        .frame(width: 50, height: 50)
+                        .frame(width: AvatarStyle.chatSize, height: AvatarStyle.chatSize)
                         .overlay {
                             Text(initials)
                                 .foregroundColor(.white)

@@ -30,7 +30,7 @@ import Foundation
 /// }
 /// ```
 struct InviteObject: Codable, Equatable {
-    /// Protocol version (currently 1)
+    /// Protocol version (1 or 2)
     let v: Int
     
     /// JTI - unique invite ID for one-time use tracking
@@ -67,7 +67,7 @@ struct InviteObject: Codable, Equatable {
     /// - Throws: InviteValidationError if invalid
     func validate() throws {
         // Version check
-        guard v == 1 else {
+        guard InviteConfig.supportedVersions.contains(v) else {
             throw InviteValidationError.unsupportedVersion(v)
         }
         
@@ -82,7 +82,8 @@ struct InviteObject: Codable, Equatable {
         }
         
         // Device ID format (32-char hex string)
-        guard deviceId.count == 32, deviceId.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil else {
+        guard deviceId.count == InviteConfig.deviceIdLength,
+              deviceId.range(of: InviteConfig.deviceIdRegex, options: .regularExpression) != nil else {
             throw InviteValidationError.invalidDeviceID
         }
         
@@ -93,36 +94,36 @@ struct InviteObject: Codable, Equatable {
         
         // Ephemeral key format (Base64, should decode to 32 bytes)
         guard let ephKeyData = Data(base64Encoded: ephKey),
-              ephKeyData.count == 32 else {
+              ephKeyData.count == InviteConfig.ephKeyLengthBytes else {
             throw InviteValidationError.invalidEphemeralKey
         }
         
         // Timestamp (must be positive, not too far in future)
         let now = Int(Date().timeIntervalSince1970)
-        guard ts > 0, ts <= now + 300 else {  // Allow 5 min clock skew
+        guard ts > 0, ts <= now + Int(InviteConfig.maxFutureSkewSeconds) else {
             throw InviteValidationError.invalidTimestamp
         }
         
         // Signature format (Base64, should decode to 64 bytes)
         guard let sigData = Data(base64Encoded: sig),
-              sigData.count == 64 else {
+              sigData.count == InviteConfig.signatureLengthBytes else {
             throw InviteValidationError.invalidSignature
         }
     }
     
     /// Check if invite has expired
-    /// - Parameter ttlSeconds: Time-to-live in seconds (default: 180 = 3 minutes)
+    /// - Parameter ttlSeconds: Time-to-live in seconds (default: 300 = 5 minutes)
     /// - Returns: true if expired
-    func isExpired(ttl: TimeInterval = 180) -> Bool {
+    func isExpired(ttl: TimeInterval = InviteConfig.ttlSeconds) -> Bool {
         let now = Date().timeIntervalSince1970
         let expiresAt = TimeInterval(ts) + ttl
         return now > expiresAt
     }
     
     /// Get remaining time until expiry
-    /// - Parameter ttlSeconds: Time-to-live in seconds (default: 180)
+    /// - Parameter ttlSeconds: Time-to-live in seconds (default: 300)
     /// - Returns: Seconds remaining, or 0 if expired
-    func timeRemaining(ttl: TimeInterval = 180) -> TimeInterval {
+    func timeRemaining(ttl: TimeInterval = InviteConfig.ttlSeconds) -> TimeInterval {
         let now = Date().timeIntervalSince1970
         let expiresAt = TimeInterval(ts) + ttl
         return max(0, expiresAt - now)
@@ -132,11 +133,16 @@ struct InviteObject: Codable, Equatable {
     
     /// Get canonical string representation for signing
     ///
-    /// Fields are concatenated in order: v,jti,uuid,deviceId,server,ephKey,ts
+    /// Fields are concatenated in order:
+    /// - v1: v|jti|uuid|server|ephKey|ts
+    /// - v2: v|jti|uuid|deviceId|server|ephKey|ts
     /// This exact order must be used for both signing and verification.
     ///
     /// - Returns: String to sign/verify
     func canonicalString() -> String {
+        if v == 1 {
+            return "\(v)|\(jti)|\(uuid)|\(server)|\(ephKey)|\(ts)"
+        }
         return "\(v)|\(jti)|\(uuid)|\(deviceId)|\(server)|\(ephKey)|\(ts)"
     }
 }

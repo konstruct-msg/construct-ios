@@ -44,7 +44,7 @@ class CryptoManager {
     private let gcIntervalSeconds: TimeInterval = 24 * 60 * 60
 
     private init() {
-        self.core = coreProvider.loadOrCreateCore()
+        self.core = coreProvider.loadCore()
 
         // ✅ Restore recent sessions (pagination - first 10 chats)
         // ⚠️ Defer to avoid accessing Core Data before stores are loaded
@@ -86,22 +86,52 @@ class CryptoManager {
     }
     
     // MARK: - Device Registration
+
+    /// Export signing secret key from current core (for device-signed flows).
+    func exportSigningSecretKey() throws -> [UInt8] {
+        guard let core = core else {
+            throw CryptoManagerError.coreNotInitialized
+        }
+
+        let keysJSON = try core.exportPrivateKeysJson()
+        guard let data = keysJSON.data(using: .utf8),
+              let keys = try? JSONDecoder().decode(PrivateKeysJSON.self, from: data),
+              let signingSecretData = Data(base64Encoded: keys.signingSecret) else {
+            throw CryptoError.InvalidKeyData(message: "Failed to decode signing secret key")
+        }
+
+        return [UInt8](signingSecretData)
+    }
     
     /// Generate a complete registration bundle for device-based authentication
     /// Returns: (deviceId, registrationBundle JSON, signing key bytes, identity key bytes)
     func generateRegistrationBundle() throws -> (deviceId: String, bundleJson: String, signingKey: Data, identityKey: Data) {
         Log.info("🔑 Generating registration bundle...", category: "CryptoManager")
         
-        // Create a fresh CryptoCore (will generate new keys)
-        let freshCore = try createCryptoCore()
+        // Use existing core if available, otherwise create a new one
+        let activeCore: ClassicCryptoCore
+        if let core = self.core {
+            activeCore = core
+        } else {
+            activeCore = try createCryptoCore()
+            self.core = activeCore
+        }
         
         // Export registration bundle (contains all public keys)
-        let bundleJson = try freshCore.exportRegistrationBundleJson()
+        let bundleJson = try activeCore.exportRegistrationBundleJson()
         Log.debug("📦 Registration bundle: \(bundleJson.prefix(200))...", category: "CryptoManager")
         
         // Export private keys to extract what we need
-        let privateKeysJson = try freshCore.exportPrivateKeysJson()
+        let privateKeysJson = try activeCore.exportPrivateKeysJson()
         Log.debug("🔐 Private keys JSON: \(privateKeysJson.prefix(200))...", category: "CryptoManager")
+
+        // Persist the new core keys so the app uses the same keypair after registration
+        let saved = KeychainManager.shared.savePrivateKeysJson(privateKeysJson)
+        if saved {
+            Log.info("✅ Saved registration private keys JSON to Keychain", category: "CryptoManager")
+        } else {
+            Log.error("⚠️ Failed to save registration private keys JSON to Keychain", category: "CryptoManager")
+        }
         
         // Parse private keys JSON to get signing and identity keys
         guard let keysData = privateKeysJson.data(using: .utf8) else {
@@ -154,6 +184,25 @@ class CryptoManager {
         Log.info("✅ Generated registration bundle: device_id=\(deviceId)", category: "CryptoManager")
         
         return (deviceId, bundleJson, signingKeyData, identityKeyData)
+    }
+
+    // MARK: - Private Keys JSON Structure
+
+    /// Matches Rust PrivateKeysJson structure (snake_case)
+    private struct PrivateKeysJSON: Codable {
+        let identitySecret: String
+        let signingSecret: String
+        let signedPrekeySecret: String
+        let prekeySignature: String
+        let suiteId: String
+
+        enum CodingKeys: String, CodingKey {
+            case identitySecret = "identity_secret"
+            case signingSecret = "signing_secret"
+            case signedPrekeySecret = "signed_prekey_secret"
+            case prekeySignature = "prekey_signature"
+            case suiteId = "suite_id"
+        }
     }
     
     // MARK: - Prekey ID Tracking

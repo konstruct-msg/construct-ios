@@ -46,8 +46,10 @@ class SessionInitializationService {
     ) throws {
         // Proactively delete stale session if requested
         if deleteExisting {
-            CryptoManager.shared.archiveSession(for: userId, reason: .manualReset)
-            Log.info("🗑️ Proactively deleted any existing session for \(userId) before initialization.", category: "SessionInit")
+            if CryptoManager.shared.hasSession(for: userId) {
+                CryptoManager.shared.archiveSession(for: userId, reason: .manualReset)
+                Log.info("🗑️ Proactively deleted any existing session for \(userId) before initialization.", category: "SessionInit")
+            }
         }
         
         let bundleWithSuite = (
@@ -58,7 +60,13 @@ class SessionInitializationService {
             suiteId: String(bundle.suiteId)
         )
         
-        try CryptoManager.shared.initializeSession(for: userId, recipientBundle: bundleWithSuite)
+        do {
+            try CryptoManager.shared.initializeSession(for: userId, recipientBundle: bundleWithSuite)
+        } catch {
+            Log.error("❌ Session init failed for \(userId): \(error)", category: "SessionInit")
+            Log.error("   bundle.suiteId=\(bundle.suiteId), identityPublic.len=\(bundle.identityPublic.count), signedPrekeyPublic.len=\(bundle.signedPrekeyPublic.count)", category: "SessionInit")
+            throw error
+        }
         Log.info("✅ Session initialized as INITIATOR for \(userId)", category: "SessionInit")
     }
     

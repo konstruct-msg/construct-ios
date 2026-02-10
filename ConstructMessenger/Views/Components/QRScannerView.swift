@@ -283,13 +283,17 @@ struct QRScannerView: View {
     private func handleScannedCode(_ code: String) {
         scanner.stopScanning()
 
+        let normalized = normalizeScannedCode(code)
+        Log.debug("📷 QRScannerView: scanned=\(code.prefix(120))..., normalized=\(normalized.prefix(120))...", category: "QRScannerView")
+
         // Support both legacy and Dynamic Invite formats
-        if code.hasPrefix("https://konstruct.cc/c/") ||
-           code.hasPrefix("https://konstruct.cc/add") ||
-           code.hasPrefix("konstruct://add") {
-            onCodeScanned(code)
-        } else if isBase64Like(code) {
-            let wrapped = "konstruct://add?invite=\(code)"
+        if normalized.lowercased().hasPrefix("https://konstruct.cc/c/") ||
+           normalized.lowercased().hasPrefix("https://konstruct.cc/add") ||
+           normalized.lowercased().hasPrefix("https://web.konstruct.cc/add") ||
+           normalized.lowercased().hasPrefix(InviteConfig.qrCodePrefixScheme) {
+            onCodeScanned(normalized)
+        } else if isBase64Like(normalized) {
+            let wrapped = "konstruct://add?invite=\(normalized)"
             onCodeScanned(wrapped)
         } else {
             errorMessage = NSLocalizedString("invalid_qr_code_construct", comment: "Error message for invalid QR code")
@@ -299,10 +303,27 @@ struct QRScannerView: View {
 
     private func isBase64Like(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 40 else { return false }
+        guard trimmed.count >= QRScannerConfig.minBase64Length else { return false }
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-")
         return trimmed.rangeOfCharacter(from: allowed.inverted) == nil
     }
+
+    private func normalizeScannedCode(_ code: String) -> String {
+        var value = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("https://https://") {
+            value = value.replacingOccurrences(of: "https://https://", with: "https://")
+        } else if value.hasPrefix("http://https://") {
+            value = value.replacingOccurrences(of: "http://https://", with: "https://")
+        }
+        if value.hasPrefix("konstruct.cc/") {
+            value = "https://\(value)"
+        }
+        return value
+    }
+}
+
+private enum QRScannerConfig {
+    static let minBase64Length = 40
 }
 
 // MARK: - QR Code Scanner Logic

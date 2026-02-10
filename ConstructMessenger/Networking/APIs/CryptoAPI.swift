@@ -59,7 +59,7 @@ class CryptoAPI {
             identityPublic: firstSuite.identityKey,
             signedPrekeyPublic: firstSuite.signedPrekey,
             signature: firstSuite.signedPrekeySignature,
-            verifyingKey: response.keyBundle.masterIdentityKey,
+            verifyingKey: response.verifyingKey,
             suiteId: UInt16(firstSuite.suiteId)
         )
     }

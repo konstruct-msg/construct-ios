@@ -54,7 +54,8 @@ class InviteGenerator {
         guard UUID(uuidString: userId) != nil else {
             throw InviteGenerationError.invalidUserId
         }
-        guard deviceId.count == 32, deviceId.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil else {
+        guard deviceId.count == InviteConfig.deviceIdLength,
+              deviceId.range(of: InviteConfig.deviceIdRegex, options: .regularExpression) != nil else {
             throw InviteGenerationError.invalidDeviceId
         }
         
@@ -80,7 +81,7 @@ class InviteGenerator {
         
         // Step 6: Create unsigned invite
         let unsignedInvite = InviteObject(
-            v: 1,
+            v: InviteConfig.currentVersion,
             jti: jti,
             uuid: userId,
             deviceId: deviceId,
@@ -96,24 +97,33 @@ class InviteGenerator {
         Log.debug("🔐 Canonical string for signing: \(dataToSign)", category: "InviteGenerator")
         
         // Step 8: Sign with identity key
-        print("🔐 SIGN: Calling Rust signInviteData")
-        print("   Data to sign: \(dataToSign)")
-        print("   Data bytes: \(dataToSign.utf8.count)")
-        print("   Signing secret key bytes: \(signingSecretKey.count)")
-        print("   Secret key hex (first 16): \(signingSecretKey.prefix(16).map { String(format: "%02x", $0) }.joined())")
+        Log.debug("🔐 SIGN: Calling Rust signInviteData", category: "InviteGenerator")
+        Log.debug("   Data bytes: \(dataToSign.utf8.count)", category: "InviteGenerator")
+        Log.debug("   Signing secret key bytes: \(signingSecretKey.count)", category: "InviteGenerator")
         
         // ✅ DEBUG: Derive public key from this secret key to verify it matches server
         let expectedVerifyingKey = try deriveVerifyingKeyFromSecret(identitySecretKey: signingSecretKey)
         let expectedVerifyingKeyBase64 = Data(expectedVerifyingKey).base64EncodedString()
-        print("🔐 SIGN: Expected verifying key from our secret: \(expectedVerifyingKeyBase64)")
+        Log.debug("🔐 SIGN: Expected verifying key from our secret: \(expectedVerifyingKeyBase64)", category: "InviteGenerator")
         
         let signature = try signInviteData(
             data: dataToSign,
             identitySecretKey: signingSecretKey
         )
         
-        print("🔐 SIGN: Rust returned signature bytes: \(signature.signature.count)")
-        print("   Signature hex (first 32): \(signature.signature.prefix(32).map { String(format: "%02x", $0) }.joined())")
+        Log.debug("🔐 SIGN: Rust returned signature bytes: \(signature.signature.count)", category: "InviteGenerator")
+
+        // Step 8b: Self-verify signature using derived verifying key (debug safety)
+        let isSelfValid = try verifyInviteSignature(
+            data: dataToSign,
+            signature: [UInt8](signature.signature),
+            verifyingKey: [UInt8](expectedVerifyingKey)
+        )
+        Log.debug("🔐 SIGN: Self-verify result: \(isSelfValid)", category: "InviteGenerator")
+        if !isSelfValid {
+            Log.error("❌ Invite self-verify failed (signing key mismatch)", category: "InviteGenerator")
+            throw InviteGenerationError.signingFailed
+        }
         
         // Step 9: Encode signature to Base64
         let signatureBase64 = Data(signature.signature).base64EncodedString()
@@ -122,7 +132,7 @@ class InviteGenerator {
         
         // Step 10: Create final signed invite
         let signedInvite = InviteObject(
-            v: 1,
+            v: InviteConfig.currentVersion,
             jti: jti,
             uuid: userId,
             deviceId: deviceId,
@@ -135,7 +145,8 @@ class InviteGenerator {
         // Validate before returning
         try signedInvite.validate()
         
-        Log.info("✅ Generated invite: jti=\(jti.prefix(8))..., expires in 3 minutes", category: "InviteGenerator")
+        let ttlMinutes = Int(InviteConfig.ttlSeconds / 60)
+        Log.info("✅ Generated invite: jti=\(jti.prefix(8))..., expires in \(ttlMinutes) minutes", category: "InviteGenerator")
         
         return signedInvite
     }
@@ -213,6 +224,13 @@ class InviteGenerator {
         Log.debug("🔐 Using signing secret key for invite signing (\(signingSecretData.count) bytes)", category: "InviteGenerator")
         
         return [UInt8](signingSecretData)
+    }
+
+    /// Derive the expected verifying key (Base64) from local signing secret.
+    func expectedVerifyingKeyBase64() throws -> String {
+        let signingSecretKey = try getSigningSecretKey()
+        let verifyingKey = try deriveVerifyingKeyFromSecret(identitySecretKey: signingSecretKey)
+        return Data(verifyingKey).base64EncodedString()
     }
 
     // MARK: - Server Normalization

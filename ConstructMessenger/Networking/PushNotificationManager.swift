@@ -98,6 +98,19 @@ class PushNotificationManager: NSObject, ObservableObject {
                         && deviceToken != nil
         
         Log.debug("📱 Push authorization status: \(authorizationStatus.description)", category: "Push")
+
+        // If already authorized (e.g., after reinstall or app update), ensure APNs registration happens.
+        await registerForRemoteNotificationsIfAuthorized()
+    }
+
+    private func registerForRemoteNotificationsIfAuthorized() async {
+        guard authorizationStatus == .authorized || authorizationStatus == .provisional else { return }
+        guard deviceToken == nil else { return }
+
+        await MainActor.run {
+            Log.info("📱 Registering for remote notifications (authorized, no token yet)", category: "Push")
+            UIApplication.shared.registerForRemoteNotifications()
+        }
     }
     
     /// Register device token with backend server

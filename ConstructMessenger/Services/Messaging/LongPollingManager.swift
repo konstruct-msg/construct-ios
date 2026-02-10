@@ -37,12 +37,15 @@ class LongPollingManager: ObservableObject {
     
     // MARK: - Configuration
     
-    private let pollingTimeout: Int
+    private var pollingTimeout: Int
+    private var postSuccessDelaySeconds: TimeInterval
     
     // MARK: - Initialization
     
-    init(pollingTimeout: Int = 30) {
+    init(pollingTimeout: Int = LongPollingConfig.fullTimeoutSeconds,
+         postSuccessDelaySeconds: TimeInterval = 0) {
         self.pollingTimeout = pollingTimeout
+        self.postSuccessDelaySeconds = postSuccessDelaySeconds
     }
     
     // MARK: - Public API
@@ -55,12 +58,16 @@ class LongPollingManager: ObservableObject {
     func startPolling(
         getLastMessageId: @escaping () -> String?,
         updateLastMessageId: @escaping (String) -> Void,
-        onMessagesReceived: @escaping ([ChatMessageResponse]) -> Void
+        onMessagesReceived: @escaping ([ChatMessageResponse]) -> Void,
+        pollingTimeout: Int,
+        postSuccessDelaySeconds: TimeInterval
     ) {
         guard !isPolling else {
             Log.info("📡 Long polling already running, skipping duplicate start", category: "LongPollingManager")
             return
         }
+
+        updateConfiguration(pollingTimeout: pollingTimeout, postSuccessDelaySeconds: postSuccessDelaySeconds)
         
         self.getLastMessageId = getLastMessageId
         self.updateLastMessageId = updateLastMessageId
@@ -72,6 +79,13 @@ class LongPollingManager: ObservableObject {
         pollingTask = Task { [weak self] in
             await self?.pollMessagesLoop()
         }
+    }
+
+    func updateConfiguration(pollingTimeout: Int, postSuccessDelaySeconds: TimeInterval) {
+        guard self.pollingTimeout != pollingTimeout || self.postSuccessDelaySeconds != postSuccessDelaySeconds else { return }
+        self.pollingTimeout = pollingTimeout
+        self.postSuccessDelaySeconds = postSuccessDelaySeconds
+        Log.debug("📡 Updated polling configuration: timeout=\(pollingTimeout)s, postDelay=\(postSuccessDelaySeconds)s", category: "LongPollingManager")
     }
     
     /// Stop long polling
@@ -104,7 +118,9 @@ class LongPollingManager: ObservableObject {
         startPolling(
             getLastMessageId: getLastMessageId,
             updateLastMessageId: updateLastMessageId,
-            onMessagesReceived: onMessagesReceived
+            onMessagesReceived: onMessagesReceived,
+            pollingTimeout: pollingTimeout,
+            postSuccessDelaySeconds: postSuccessDelaySeconds
         )
     }
     
@@ -141,11 +157,8 @@ class LongPollingManager: ObservableObject {
                 if let nextSince = response.nextSince {
                     updateLastMessageId?(nextSince)
                     Log.info("✅ Updated lastMessageId from nextSince: \(lastId ?? "nil") -> \(nextSince)", category: "LongPollingManager")
-                } else if let lastMessage = response.messages.last {
-                    updateLastMessageId?(lastMessage.id)
-                    Log.info("✅ Updated lastMessageId from last message: \(lastId ?? "nil") -> \(lastMessage.id)", category: "LongPollingManager")
                 } else {
-                    Log.info("ℹ️ No nextSince and no messages, keeping lastMessageId: \(lastId ?? "nil")", category: "LongPollingManager")
+                    Log.info("ℹ️ No nextSince in response, keeping lastMessageId: \(lastId ?? "nil")", category: "LongPollingManager")
                 }
                 
                 // Reset retry count on successful poll
@@ -163,6 +176,12 @@ class LongPollingManager: ObservableObject {
                     if jitterMs > 0 {
                         try? await Task.sleep(nanoseconds: jitterMs * 1_000_000)
                     }
+                }
+
+                // Optional idle delay (used for minimal polling when push is enabled)
+                if postSuccessDelaySeconds > 0 {
+                    let delayNs = UInt64(postSuccessDelaySeconds * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: delayNs)
                 }
                 
             } catch {

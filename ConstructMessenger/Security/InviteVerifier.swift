@@ -49,7 +49,8 @@ class InviteVerifier {
     /// - Returns: Decoded InviteObject
     /// - Throws: InviteVerificationError
     func decodeFromURL(_ url: URL) throws -> InviteObject {
-        guard let encoded = extractInviteString(from: url) else {
+        guard let encoded = extractInviteString(from: url), !encoded.isEmpty else {
+            Log.error("❌ Missing invite parameter in URL: \(url.absoluteString)", category: "InviteVerifier")
             throw InviteVerificationError.invalidEncoding
         }
         return try decode(encoded)
@@ -92,12 +93,16 @@ class InviteVerifier {
     ///
     /// - Parameters:
     ///   - invite: InviteObject to verify
-    ///   - ttl: Time-to-live in seconds (default: 180 = 3 minutes)
+    ///   - ttl: Time-to-live in seconds (default: 300 = 5 minutes)
     /// - Returns: true if valid
     /// - Throws: InviteVerificationError
-    func verify(_ invite: InviteObject, ttl: TimeInterval = 180) async throws -> Bool {
+    func verify(_ invite: InviteObject, ttl: TimeInterval = InviteConfig.ttlSeconds) async throws -> Bool {
         // Step 1: Check structure validity
         try invite.validate()
+
+        if invite.server != ServerConfig.inviteHost {
+            Log.info("ℹ️ Invite server differs from configured host: invite=\(invite.server), expected=\(ServerConfig.inviteHost)", category: "InviteVerifier")
+        }
         
         // Step 2: Check expiry
         guard !invite.isExpired(ttl: ttl) else {
@@ -114,7 +119,7 @@ class InviteVerifier {
             throw InviteVerificationError.invalidVerifyingKey
         }
         
-        print("🔐 VERIFY: Server verifying key: \(publicKeyBundle.verifyingKey)")
+        Log.debug("🔐 VERIFY: Server verifying key: \(publicKeyBundle.verifyingKey)", category: "InviteVerifier")
         Log.debug("🔐 Verifying key from server (first 16 bytes): \(verifyingKeyData.prefix(16).base64EncodedString())", category: "InviteVerifier")
         Log.debug("🔐 Full verifying key base64: \(publicKeyBundle.verifyingKey)", category: "InviteVerifier")
         
@@ -126,19 +131,17 @@ class InviteVerifier {
         // Step 6: Get canonical string (same as used for signing)
         let dataToVerify = invite.canonicalString()
         
-        print("🔐 VERIFY: Data to verify: \(dataToVerify)")
-        print("🔐 VERIFY: Signature: \(invite.sig)")
+        Log.debug("🔐 VERIFY: Data to verify: \(dataToVerify)", category: "InviteVerifier")
+        Log.debug("🔐 VERIFY: Signature: \(invite.sig)", category: "InviteVerifier")
         
         Log.debug("🔐 Data to verify: \(dataToVerify)", category: "InviteVerifier")
         Log.debug("🔐 Signature base64: \(invite.sig)", category: "InviteVerifier")
         
         // Step 7: Verify signature using Rust core
-        print("🔐 VERIFY: Calling Rust verifyInviteSignature")
-        print("   Data bytes: \(dataToVerify.utf8.count)")
-        print("   Signature bytes: \(signatureData.count)")
-        print("   Verifying key bytes: \(verifyingKeyData.count)")
-        print("   Signature hex: \(signatureData.map { String(format: "%02x", $0) }.joined())")
-        print("   Verifying key hex: \(verifyingKeyData.map { String(format: "%02x", $0) }.joined())")
+        Log.debug("🔐 VERIFY: Calling Rust verifyInviteSignature", category: "InviteVerifier")
+        Log.debug("   Data bytes: \(dataToVerify.utf8.count)", category: "InviteVerifier")
+        Log.debug("   Signature bytes: \(signatureData.count)", category: "InviteVerifier")
+        Log.debug("   Verifying key bytes: \(verifyingKeyData.count)", category: "InviteVerifier")
         
         let isValid = try verifyInviteSignature(
             data: dataToVerify,
@@ -146,7 +149,7 @@ class InviteVerifier {
             verifyingKey: [UInt8](verifyingKeyData)
         )
         
-        print("🔐 VERIFY: Rust returned: \(isValid)")
+        Log.debug("🔐 VERIFY: Rust returned: \(isValid)", category: "InviteVerifier")
         
         if isValid {
             Log.info("✅ Invite signature valid: jti=\(invite.jti.prefix(8))...", category: "InviteVerifier")
@@ -190,7 +193,7 @@ class InviteVerifier {
     ///   - invite: InviteObject
     ///   - ttl: Time-to-live in seconds
     /// - Returns: true if expired
-    func checkExpiry(_ invite: InviteObject, ttl: TimeInterval = 180) -> Bool {
+    func checkExpiry(_ invite: InviteObject, ttl: TimeInterval = InviteConfig.ttlSeconds) -> Bool {
         return invite.isExpired(ttl: ttl)
     }
     

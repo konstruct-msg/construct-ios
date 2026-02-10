@@ -15,10 +15,11 @@ struct ContactQRCodeView: View {
     let username: String
     
     @State private var qrPayload: String?
-    @State private var timeRemaining: TimeInterval = 180 // 3 minutes
+    @State private var timeRemaining: TimeInterval = InviteConfig.ttlSeconds
     @State private var generationError: String?
+    @State private var generatedAt: Date?
     
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: InviteConfig.qrCountdownTickSeconds, on: .main, in: .common).autoconnect()
     private let generator = InviteGenerator()
 
     var body: some View {
@@ -83,7 +84,7 @@ struct ContactQRCodeView: View {
                                 Text("Expires in \(formatTime(timeRemaining))")
                                     .font(.caption)
                             }
-                            .foregroundColor(timeRemaining < 60 ? .orange : .secondary)
+                            .foregroundColor(timeRemaining < InviteConfig.qrWarningThresholdSeconds ? .orange : .secondary)
                         } else {
                             Text("Code expired")
                                 .font(.caption)
@@ -135,9 +136,7 @@ struct ContactQRCodeView: View {
                 generateInitialQRCode()
             }
             .onReceive(timer) { _ in
-                if timeRemaining > 0 {
-                    timeRemaining -= 1
-                }
+                updateTimeRemaining()
             }
         }
     }
@@ -145,6 +144,11 @@ struct ContactQRCodeView: View {
     // MARK: - QR Code Generation
     
     private func generateInitialQRCode() {
+        Task { await generateInitialQRCodeAsync() }
+    }
+
+    @MainActor
+    private func generateInitialQRCodeAsync() async {
         Log.info("🔐 Starting QR code generation...", category: "ContactQRCodeView")
         Log.info("   - userId: \(userId)", category: "ContactQRCodeView")
         Log.info("   - username: \(username)", category: "ContactQRCodeView")
@@ -167,7 +171,7 @@ struct ContactQRCodeView: View {
                 Log.error("❌ Cannot generate QR: deviceId not found in Keychain", category: "ContactQRCodeView")
                 return
             }
-            
+
             // ✅ Generate deep link with both userId and deviceId
             let deepLink = try generator.generateDeepLink(
                 userId: userId,
@@ -176,7 +180,8 @@ struct ContactQRCodeView: View {
                 useHTTPS: false
             )
             qrPayload = deepLink
-            timeRemaining = 180 // Reset to 3 minutes
+            generatedAt = Date()
+            timeRemaining = InviteConfig.ttlSeconds
             generationError = nil
             Log.info("✅ Generated QR code for \(username): userId=\(userId.prefix(8))..., deviceId=\(deviceId)", category: "ContactQRCodeView")
         } catch {
@@ -188,6 +193,7 @@ struct ContactQRCodeView: View {
     private func regenerateQRCode() {
         qrPayload = nil
         generationError = nil
+        generatedAt = nil
         generateInitialQRCode()
     }
     
@@ -215,6 +221,15 @@ struct ContactQRCodeView: View {
         let minutes = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", minutes, secs)
+    }
+
+    private func updateTimeRemaining() {
+        guard let generatedAt else { return }
+        let elapsed = Date().timeIntervalSince(generatedAt)
+        let remaining = max(InviteConfig.ttlSeconds - elapsed, 0)
+        if remaining != timeRemaining {
+            timeRemaining = remaining
+        }
     }
 }
 

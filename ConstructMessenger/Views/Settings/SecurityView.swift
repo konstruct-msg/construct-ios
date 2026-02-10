@@ -12,6 +12,7 @@ struct SecurityView: View {
     
     @State private var showingPinSetup = false
     @State private var showingDisablePinSheet = false
+    @State private var showingSeedRecovery = false
     
     var body: some View {
         List {
@@ -52,6 +53,24 @@ struct SecurityView: View {
                     }
                 }
             }
+
+            Section {
+                Button {
+                    showingSeedRecovery = true
+                } label: {
+                    Label {
+                        Text("account_recovery_seed")
+                            .foregroundColor(.primary)
+                    } icon: {
+                        Image(systemName: "key.fill")
+                            .foregroundColor(.gray)
+                    }
+                }
+            } footer: {
+                Text("account_recovery_seed_hint")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .sheet(isPresented: $showingPinSetup) {
             PinSetupView(isChanging: securityViewModel.isPinEnabled)
@@ -60,6 +79,11 @@ struct SecurityView: View {
         .sheet(isPresented: $showingDisablePinSheet) {
             PinDisableView()
                 .environmentObject(securityViewModel)
+        }
+        .alert("account_recovery_seed", isPresented: $showingSeedRecovery) {
+            Button("ok", role: .cancel) { }
+        } message: {
+            Text("account_recovery_seed_coming_soon")
         }
     }
 }

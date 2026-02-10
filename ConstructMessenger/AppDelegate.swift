@@ -136,6 +136,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Remove all delivered notifications
         LocalNotificationManager.shared.removeAllNotifications()
+
+        // Refresh push authorization state and re-register if needed
+        Task { await PushNotificationManager.shared.checkAuthorizationStatus() }
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {

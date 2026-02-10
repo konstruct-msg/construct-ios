@@ -63,18 +63,18 @@ struct NewChatView: View {
     }
 
     private func handleScannedContact(_ urlString: String) {
-        print("🔍 NewChatView: Handling scanned URL: \(urlString)")
+        Log.info("🔍 NewChatView: Handling scanned URL: \(urlString)", category: "NewChatView")
 
         guard let url = URL(string: urlString) else {
-            print("❌ Invalid URL string: \(urlString)")
-            // TODO: Show alert to user
+            Log.error("❌ Invalid URL string: \(urlString)", category: "NewChatView")
+            showErrorAfterDismiss(NSLocalizedString("invalid_qr_code_construct", comment: "Error message for invalid QR code"))
             return
         }
 
         Task {
             do {
                 let contactInfo = try await LinkParser.parseContactLink(url)
-                print("✅ Parsed contact: userId=\(contactInfo.userId), username=\(contactInfo.username), isDynamic=\(contactInfo.isDynamic)")
+                Log.info("✅ Parsed contact: userId=\(contactInfo.userId), username=\(contactInfo.username), isDynamic=\(contactInfo.isDynamic)", category: "NewChatView")
                 
                 await MainActor.run {
                     addContact(userId: contactInfo.userId, username: contactInfo.username)
@@ -82,11 +82,9 @@ struct NewChatView: View {
                     dismiss()
                 }
             } catch {
-                print("❌ Failed to parse contact link: \(error.localizedDescription)")
-                // TODO: Show alert to user with specific error message
+                Log.error("❌ Failed to parse contact link: \(error.localizedDescription)", category: "NewChatView")
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
+                    showErrorAfterDismiss(error.localizedDescription)
                     // Keep scanner closed but show error
                     showingQRScanner = false
                 }
@@ -95,7 +93,7 @@ struct NewChatView: View {
     }
 
     private func addContact(userId: String, username: String) {
-        print("📱 NewChatView: Adding contact userId=\(userId), username=\(username)")
+        Log.info("📱 NewChatView: Adding contact userId=\(userId), username=\(username)", category: "NewChatView")
 
         // Start chat with user - let ChatsViewModel handle User creation
         let publicUserInfo = PublicUserInfo(
@@ -105,9 +103,17 @@ struct NewChatView: View {
             bio: nil
         )
         if let chat = chatsViewModel.startChat(with: publicUserInfo) {
-            print("✅ NewChatView: Chat created with @\(username), chat.id=\(chat.id), chat.otherUser?.id=\(chat.otherUser?.id ?? "nil")")
+            Log.info("✅ NewChatView: Chat created with @\(username), chat.id=\(chat.id)", category: "NewChatView")
         } else {
-            print("❌ NewChatView: Failed to create chat with @\(username)")
+            Log.error("❌ NewChatView: Failed to create chat with @\(username)", category: "NewChatView")
+        }
+    }
+
+    private func showErrorAfterDismiss(_ message: String) {
+        errorMessage = message
+        showingQRScanner = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            showingError = true
         }
     }
 }

@@ -39,12 +39,20 @@ class ChatManagementService {
             Log.error("❌ ChatManagementService: No viewContext available", category: "ChatManagementService")
             return nil 
         }
+
+        if user.id == SessionManager.shared.currentUserId {
+            Log.info("📝 Self-chat detected — use Drafts instead", category: "ChatManagementService")
+            return nil
+        }
         
         // Check if chat already exists
         let fetchRequest = Chat.fetchRequest()
-        let chatOwnerPredicate = fetchRequest.predicate!
         let otherUserPredicate = NSPredicate(format: "otherUser.id == %@", user.id)
-        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [chatOwnerPredicate, otherUserPredicate])
+        var chatPredicates: [NSPredicate] = [otherUserPredicate]
+        if let chatOwnerPredicate = fetchRequest.predicate {
+            chatPredicates.insert(chatOwnerPredicate, at: 0)
+        }
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: chatPredicates)
         
         if let existingChat = try? context.fetch(fetchRequest).first {
             Log.debug("ℹ️ Chat already exists with user: \(user.username)", category: "ChatManagementService")
@@ -53,23 +61,26 @@ class ChatManagementService {
         
         // Check if User already exists before creating a new one
         let userFetchRequest = User.fetchRequest()
-        let userOwnerPredicate = userFetchRequest.predicate!
         let idPredicate = NSPredicate(format: "id == %@", user.id)
-        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, idPredicate])
+        var userPredicates: [NSPredicate] = [idPredicate]
+        if let userOwnerPredicate = userFetchRequest.predicate {
+            userPredicates.insert(userOwnerPredicate, at: 0)
+        }
+        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: userPredicates)
         
         let dbUser: User
         if let existingUser = try? context.fetch(userFetchRequest).first {
             // Use existing user - update username and displayName if they changed
-            existingUser.username = user.username
-            existingUser.displayName = user.username
+            existingUser.username = normalizedUsername(from: user.username)
+            existingUser.displayName = displayName(for: user)
             dbUser = existingUser
             Log.debug("Using existing user: id=\(user.id), username=\(user.username), displayName=\(existingUser.displayName)", category: "ChatManagementService")
         } else {
             // Create new user
             dbUser = User(context: context)
             dbUser.id = user.id
-            dbUser.username = user.username
-            dbUser.displayName = user.username
+            dbUser.username = normalizedUsername(from: user.username)
+            dbUser.displayName = displayName(for: user)
             dbUser.isSharingWithMe = false
             dbUser.isBlocked = false
             dbUser.amISharingWith = false
@@ -97,6 +108,22 @@ class ChatManagementService {
             Log.error("❌ Failed to save chat: \(error)", category: "ChatManagementService")
             return nil
         }
+    }
+
+    private func displayName(for user: PublicUserInfo) -> String {
+        let normalized = normalizedUsername(from: user.username)
+        if !normalized.isEmpty {
+            return normalized
+        }
+        return DisplayNameGenerator.generate(from: user.id)
+    }
+
+    private func normalizedUsername(from value: String?) -> String {
+        guard let value, !value.isEmpty else { return "" }
+        if UUID(uuidString: value) != nil {
+            return ""
+        }
+        return value
     }
     
     // MARK: - Chat Deletion

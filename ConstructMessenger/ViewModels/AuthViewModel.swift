@@ -168,25 +168,25 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    // ✅ FIXED: Monitor token expiration
+    // ✅ FIXED: Monitor token expiration (single scheduled refresh)
     private func startTokenRefreshMonitoring() {
-        // Check every minute
-        tokenRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.checkTokenExpiration()
-            }
-        }
+        scheduleTokenRefresh()
     }
 
-    // ✅ FIXED: Check if token needs refresh
-    private func checkTokenExpiration() {
-        guard isAuthenticated else { return }
+    private func scheduleTokenRefresh() {
+        tokenRefreshTimer?.invalidate()
 
-        if !SessionManager.shared.isSessionValid {
-            Log.info("⚠️ Token expiring soon - attempting automatic refresh", category: "Auth")
-            
-            Task {
-                await refreshAccessToken()
+        guard isAuthenticated else { return }
+        guard let expiresAt = SessionManager.shared.sessionExpires else { return }
+
+        let now = Date()
+        let refreshTime = expiresAt.addingTimeInterval(-300) // refresh 5 minutes early
+        let interval = max(refreshTime.timeIntervalSince(now), 5)
+
+        tokenRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                Log.info("⚠️ Token refresh timer fired", category: "Auth")
+                await self?.refreshAccessToken()
             }
         }
     }
@@ -216,6 +216,7 @@ class AuthViewModel: ObservableObject {
                 )
                 
                 Log.info("✅ Access token refreshed successfully (expires in: \(expiresIn / 60) min)", category: "Auth")
+                self.scheduleTokenRefresh()
             }
             
         } catch {
@@ -380,12 +381,7 @@ class AuthViewModel: ObservableObject {
         }
     }
     
-    func deleteAccount(password: String) {
-        guard let token = SessionManager.shared.sessionToken else {
-            self.errorMessage = "Session expired. Please login again."
-            return
-        }
-        
+    func deleteAccount() {
         self.isLoading = true
         self.errorMessage = nil
         
@@ -393,7 +389,7 @@ class AuthViewModel: ObservableObject {
         
         Task {
             do {
-                try await AuthAPI.shared.deleteAccount(sessionToken: token, password: password)
+                try await deleteAccountWithDeviceSignature()
                 
                 await MainActor.run {
                     handleDeleteAccountSuccess()
@@ -406,6 +402,32 @@ class AuthViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func deleteAccountWithDeviceSignature() async throws {
+        guard let userId = SessionManager.shared.currentUserId else {
+            throw NSError(domain: "AuthViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing userId"])
+        }
+        guard let deviceId = KeychainManager.shared.loadDeviceID() else {
+            throw NSError(domain: "AuthViewModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing deviceId"])
+        }
+
+        let challenge = try await AuthAPI.shared.getDeleteChallenge()
+        let ts = Int64(Date().timeIntervalSince1970)
+        let canonical = "DELETE|\(userId)|\(deviceId)|\(challenge.challenge)|\(ts)"
+
+        let signingSecret = try CryptoManager.shared.exportSigningSecretKey()
+        let signature = try signInviteData(data: canonical, identitySecretKey: signingSecret)
+        let signatureBase64 = Data(signature.signature).base64EncodedString()
+
+        let request = DeleteDeviceRequest(
+            deviceId: deviceId,
+            challenge: challenge.challenge,
+            signature: signatureBase64,
+            ts: ts
+        )
+
+        try await AuthAPI.shared.confirmDeleteDevice(request: request)
     }
 
     // MARK: - Timeout Helpers
@@ -524,6 +546,8 @@ class AuthViewModel: ObservableObject {
         
         // Clear all user data
         SessionManager.shared.clearSession()
+        CryptoManager.shared.deleteAllCryptoKeys()
+        KeychainManager.shared.deleteDeviceKeys()
         
         // Clear CoreData - delete all user's data
         let context = PersistenceController.shared.container.viewContext
@@ -570,6 +594,7 @@ class AuthViewModel: ObservableObject {
         
         // Notify UI that account was deleted
         NotificationCenter.default.post(name: NSNotification.Name("AccountDeleted"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("DeviceKeysDeleted"), object: nil)
         
         Log.info("✅ Account deletion complete - user logged out", category: "AuthViewModel")
     }

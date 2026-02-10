@@ -177,9 +177,12 @@ class MessageRouter {
         in context: NSManagedObjectContext
     ) -> User {
         let userFetchRequest = User.fetchRequest()
-        let userOwnerPredicate = userFetchRequest.predicate!
         let userIdPredicate = NSPredicate(format: "id == %@", userId)
-        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [userOwnerPredicate, userIdPredicate])
+        var predicates: [NSPredicate] = [userIdPredicate]
+        if let existingPredicate = userFetchRequest.predicate {
+            predicates.insert(existingPredicate, at: 0)
+        }
+        userFetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         
         if let existingUser = try? context.fetch(userFetchRequest).first {
             Log.debug("Using existing user: id=\(userId)", category: "MessageRouter")
@@ -189,8 +192,8 @@ class MessageRouter {
         // Create new user with temporary username (will be updated from publicKeyBundle)
         let newUser = User(context: context)
         newUser.id = userId
-        newUser.username = userId  // Temporary
-        newUser.displayName = userId
+        newUser.username = ""
+        newUser.displayName = DisplayNameGenerator.generate(from: userId)
         newUser.isSharingWithMe = false
         newUser.isBlocked = false
         newUser.amISharingWith = false

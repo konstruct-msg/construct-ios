@@ -334,6 +334,23 @@ struct RegistrationFlowView: View {
             identityKey = identityKeyData
             
             Log.info("✅ Generated keys: device_id=\(generatedDeviceId)", category: "Registration")
+            
+            // Debug: compare verifying key in bundle vs derived from signing secret
+            if let bundleData = bundleJson.data(using: .utf8),
+               let bundleDict = try? JSONSerialization.jsonObject(with: bundleData) as? [String: Any],
+               let bundleVerifyingKey = bundleDict["verifying_key"] as? String {
+                Log.info("🔐 Registration bundle verifying_key: \(bundleVerifyingKey)", category: "Registration")
+            } else {
+                Log.info("⚠️ Could not parse verifying_key from registration bundle", category: "Registration")
+            }
+
+            do {
+                let derivedVerifyingKey = try deriveVerifyingKeyFromSecret(identitySecretKey: [UInt8](signingKeyData))
+                let derivedBase64 = Data(derivedVerifyingKey).base64EncodedString()
+                Log.info("🔐 Derived verifying key from signing_secret: \(derivedBase64)", category: "Registration")
+            } catch {
+                Log.info("⚠️ Failed to derive verifying key from signing_secret: \(error.localizedDescription)", category: "Registration")
+            }
             try await Task.sleep(for: .seconds(0.3)) // Brief pause for UI feedback
             
             // Step 2: Fetch challenge

@@ -18,8 +18,6 @@ struct AccountSettingsView: View {
     @State private var showingDeleteAccountWarning = false
     @State private var showingDeleteAccountConfirmation = false
     @State private var showingResetSessionsWarning = false
-    @State private var showingDeleteKeysWarning = false
-    @State private var deleteAccountPassword = ""
     @State private var deleteAccountError: String?
     
     var body: some View {
@@ -33,12 +31,12 @@ struct AccountSettingsView: View {
                             Image(uiImage: image)
                                 .resizable()
                                 .scaledToFill()
-                                .frame(width: 100, height: 100)
-                                .clipShape(Circle())
+                                .frame(width: AvatarStyle.accountSize, height: AvatarStyle.accountSize)
+                                .clipShape(RoundedRectangle(cornerRadius: AvatarStyle.accountCornerRadius, style: .continuous))
                         } else {
-                            Circle()
+                            RoundedRectangle(cornerRadius: AvatarStyle.accountCornerRadius, style: .continuous)
                                 .fill(Color.blue.opacity(0.2))
-                                .frame(width: 100, height: 100)
+                                .frame(width: AvatarStyle.accountSize, height: AvatarStyle.accountSize)
                                 .overlay {
                                     Text(viewModel.displayName.prefix(1).uppercased())
                                         .font(.system(size: 40, weight: .semibold))
@@ -92,27 +90,6 @@ struct AccountSettingsView: View {
                         }
                         
                         Text("Reset encrypted sessions with all contacts")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.leading)
-                    }
-                    .padding(.vertical, 4)
-                }
-                
-                // Delete Device Keys
-                Button(role: .destructive) {
-                    showingDeleteKeysWarning = true
-                } label: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "key.slash.fill")
-                                .foregroundColor(.orange)
-                            Text("Delete Device Keys")
-                                .fontWeight(.semibold)
-                            Spacer()
-                        }
-                        
-                        Text("Remove device registration and return to onboarding")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.leading)
@@ -175,23 +152,6 @@ struct AccountSettingsView: View {
         } message: {
             Text("This will reset encrypted sessions with all your contacts. They will need to send you a message to re-establish encryption.")
         }
-        // MARK: - Delete Device Keys Dialog
-        .confirmationDialog(
-            "Delete Device Keys?",
-            isPresented: $showingDeleteKeysWarning,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Keys", role: .destructive) {
-                KeychainManager.shared.deleteDeviceKeys()
-                SessionManager.shared.clearSession()
-                Log.info("🗑️ Device keys deleted - returning to onboarding", category: "AccountSettings")
-                // Force re-check in ContentView
-                NotificationCenter.default.post(name: NSNotification.Name("DeviceKeysDeleted"), object: nil)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will delete your device keys and session. You will need to register again. Your server account will remain active.")
-        }
         // MARK: - Delete Account Dialog
         .alert("delete_account_warning_title", isPresented: $showingDeleteAccountWarning) {
             Button("cancel", role: .cancel) { }
@@ -206,20 +166,14 @@ struct AccountSettingsView: View {
         }
         .sheet(isPresented: $showingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
-                password: $deleteAccountPassword,
                 error: $deleteAccountError,
                 isDeleting: authViewModel.isLoading,
                 onDelete: {
-                    guard !deleteAccountPassword.isEmpty else {
-                        deleteAccountError = NSLocalizedString("password_required", comment: "")
-                        return
-                    }
                     deleteAccountError = nil
-                    authViewModel.deleteAccount(password: deleteAccountPassword)
+                    authViewModel.deleteAccount()
                 },
                 onCancel: {
                     showingDeleteAccountConfirmation = false
-                    deleteAccountPassword = ""
                     deleteAccountError = nil
                 }
             )
@@ -243,11 +197,13 @@ struct AccountSettingsView: View {
 // MARK: - Delete Account Confirmation View
 struct DeleteAccountConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var password: String
     @Binding var error: String?
     let isDeleting: Bool
     let onDelete: () -> Void
     let onCancel: () -> Void
+
+    @State private var countdownSeconds: Int = 10
+    private let countdownTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     var body: some View {
         NavigationStack {
@@ -256,6 +212,11 @@ struct DeleteAccountConfirmationView: View {
                     Text("delete_account_confirmation_message")
                         .font(.body)
                         .foregroundColor(.primary)
+                    if let error = error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                 } header: {
                     Text("warning")
                 } footer: {
@@ -283,16 +244,27 @@ struct DeleteAccountConfirmationView: View {
                         if isDeleting {
                             ProgressView()
                                 .scaleEffect(0.8)
+                        } else if countdownSeconds > 0 {
+                            Text(String(format: NSLocalizedString("delete_account_countdown", comment: ""), countdownSeconds))
+                                .fontWeight(.semibold)
                         } else {
                             Text("delete_account")
                                 .fontWeight(.semibold)
                         }
                     }
-                    .disabled(isDeleting || password.isEmpty)
+                    .disabled(isDeleting || countdownSeconds > 0)
                 }
             }
         }
         .interactiveDismissDisabled(isDeleting)
+        .onReceive(countdownTimer) { _ in
+            if countdownSeconds > 0 {
+                countdownSeconds -= 1
+            }
+        }
+        .onAppear {
+            countdownSeconds = 10
+        }
     }
 }
 

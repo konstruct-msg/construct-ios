@@ -14,6 +14,7 @@ struct OnboardingView: View {
     @State private var usernameIsAvailable: Bool? = nil
     @State private var showingRegistration = false
     @State private var showingRecovery = false
+    @State private var showingNetworkSettings = false
     @State private var availabilityTask: Task<Void, Never>? = nil
     
     var body: some View {
@@ -105,6 +106,21 @@ struct OnboardingView: View {
             .sheet(isPresented: $showingRecovery) {
                 // TODO: Recovery flow (Week 5)
                 Text("Recovery coming soon")
+            }
+            .sheet(isPresented: $showingNetworkSettings) {
+                NavigationStack {
+                    NetworkSettingsView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingNetworkSettings = true
+                    } label: {
+                        Image(systemName: "network")
+                    }
+                    .accessibilityLabel(Text("network"))
+                }
             }
         }
     }

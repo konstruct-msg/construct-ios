@@ -173,14 +173,32 @@ class AuthAPI {
         )
     }
     
-    /// Delete account
-    /// POST /api/v1/auth/delete
-    func deleteAccount(sessionToken: String, password: String) async throws {
-        let endpoint = "/api/v1/auth/delete"
+    // MARK: - Device-Signed Account Deletion
+
+    /// Get device delete challenge
+    /// GET /api/v1/users/me/delete-challenge
+    func getDeleteChallenge() async throws -> DeleteChallengeResponse {
+        let endpoint = "/api/v1/users/me/delete-challenge"
+        let response: DeleteChallengeResponse = try await client.performRequest(
+            endpoint: endpoint,
+            method: "GET",
+            body: nil,
+            requiresAuth: true
+        )
+        return response
+    }
+
+    /// Confirm device deletion
+    /// POST /api/v1/users/me/delete-device
+    func confirmDeleteDevice(request: DeleteDeviceRequest) async throws {
+        let endpoint = "/api/v1/users/me/delete-device"
         let requestBody: [String: Any] = [
-            "password": password
+            "deviceId": request.deviceId,
+            "challenge": request.challenge,
+            "signature": request.signature,
+            "ts": request.ts
         ]
-        
+
         let _: EmptyResponse = try await client.performRequest(
             endpoint: endpoint,
             method: "POST",
@@ -250,13 +268,18 @@ class AuthAPI {
         }
         
         // ✅ Server expects publicKeys as nested object
+        let signedPrekeySignature = (bundleDict["signed_prekey_signature"] as? String)
+            ?? (bundleDict["signature"] as? String)
         var requestBody: [String: Any] = [
             "deviceId": deviceId,
             "publicKeys": [
                 "verifyingKey": bundleDict["verifying_key"] ?? "",
                 "identityPublic": bundleDict["identity_public"] ?? "",
                 "signedPrekeyPublic": bundleDict["signed_prekey_public"] ?? "",
-                "signature": bundleDict["signature"] ?? ""
+                // Backward-compatible: keep legacy field name
+                "signature": bundleDict["signature"] ?? "",
+                // New required field for server
+                "signedPrekeySignature": signedPrekeySignature ?? ""
             ],
             "cryptoSuites": ["Curve25519+Ed25519"],
             "powSolution": [
@@ -265,6 +288,22 @@ class AuthAPI {
                 "hash": powSolution.hash
             ]
         ]
+
+        if let verifyingKey = bundleDict["verifying_key"] as? String {
+            Log.info("🔐 Register payload verifyingKey: \(verifyingKey)", category: "AuthAPI")
+        } else {
+            Log.info("⚠️ Register payload missing verifying_key", category: "AuthAPI")
+        }
+        if let identityPublic = bundleDict["identity_public"] as? String {
+            Log.info("🔐 Register payload identityPublic: \(identityPublic)", category: "AuthAPI")
+        } else {
+            Log.info("⚠️ Register payload missing identity_public", category: "AuthAPI")
+        }
+        if let signedPrekeySignature {
+            Log.info("🔐 Register payload signedPrekeySignature: \(signedPrekeySignature)", category: "AuthAPI")
+        } else {
+            Log.info("⚠️ Register payload missing signed_prekey_signature/signature", category: "AuthAPI")
+        }
         
         // Username is optional
         if let username = username, !username.isEmpty {
@@ -312,4 +351,17 @@ struct ChallengeResponse: Codable {
         case difficulty
         case expiresAt  // Server sends "expiresAt" in camelCase
     }
+}
+
+struct DeleteChallengeResponse: Codable {
+    let challenge: String
+    let expiresAt: Int64
+    let deviceId: String
+}
+
+struct DeleteDeviceRequest {
+    let deviceId: String
+    let challenge: String
+    let signature: String
+    let ts: Int64
 }

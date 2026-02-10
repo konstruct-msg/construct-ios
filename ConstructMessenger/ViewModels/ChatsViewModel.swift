@@ -48,6 +48,12 @@ class ChatsViewModel: ObservableObject {
     // ✅ Connection status
     private let connectionStatusManager = ConnectionStatusManager.shared
 
+    private struct PollingState: Equatable {
+        let hasToken: Bool
+        let status: ConnectionStatusManager.ConnectionStatus
+        let pushEnabled: Bool
+    }
+
     init() {
         // ✅ Restore lastMessageId from persistent storage
         self.lastMessageId = UserDefaults.standard.string(forKey: "construct.lastMessageId")
@@ -97,25 +103,33 @@ class ChatsViewModel: ObservableObject {
             connectionStatusManager.$connectionStatus,
             PushNotificationManager.shared.$isPushEnabled
         )
+        .map { token, status, pushEnabled in
+            PollingState(hasToken: token != nil, status: status, pushEnabled: pushEnabled)
+        }
+        .removeDuplicates()
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] token, status, pushEnabled in
-            Log.info("📡 State change: token=\(token != nil ? "present" : "nil"), status=\(status.displayText), push=\(pushEnabled)", category: "ChatsViewModel")
+        .sink { [weak self] (state: PollingState) in
+            Log.info("📡 State change: token=\(state.hasToken ? "present" : "nil"), status=\(state.status.displayText), push=\(state.pushEnabled)", category: "ChatsViewModel")
             
-            if token != nil && status != .disconnected {
-                if pushEnabled {
+            if state.hasToken && state.status != ConnectionStatusManager.ConnectionStatus.disconnected {
+                if state.pushEnabled {
                     Log.info("📱 Push enabled - using minimal background polling", category: "ChatsViewModel")
-                    // TODO: Implement minimal polling (only when app is active)
-                    // For now, still do full polling but could optimize later
-                    self?.startLongPolling()
+                    self?.startLongPolling(
+                        pollingTimeout: LongPollingConfig.minimalTimeoutSeconds,
+                        postSuccessDelaySeconds: LongPollingConfig.minimalPostPollDelaySeconds
+                    )
                 } else {
                     Log.info("📡 Push disabled - using full long-polling", category: "ChatsViewModel")
-                    self?.startLongPolling()
+                    self?.startLongPolling(
+                        pollingTimeout: LongPollingConfig.fullTimeoutSeconds,
+                        postSuccessDelaySeconds: 0
+                    )
                 }
             } else {
-                if token == nil {
+                if !state.hasToken {
                     Log.info("📡 No session token - stopping polling", category: "ChatsViewModel")
-                } else if status != .connected {
-                    Log.info("📡 Not connected (\(status.displayText)) - stopping polling", category: "ChatsViewModel")
+                } else if state.status != ConnectionStatusManager.ConnectionStatus.connected {
+                    Log.info("📡 Not connected (\(state.status.displayText)) - stopping polling", category: "ChatsViewModel")
                 }
                 self?.stopLongPolling()
             }
@@ -148,7 +162,11 @@ class ChatsViewModel: ObservableObject {
 
     // MARK: - Long Polling
 
-    func startLongPolling() {
+    func startLongPolling(pollingTimeout: Int, postSuccessDelaySeconds: TimeInterval) {
+        pollingManager.updateConfiguration(
+            pollingTimeout: pollingTimeout,
+            postSuccessDelaySeconds: postSuccessDelaySeconds
+        )
         pollingManager.startPolling(
             getLastMessageId: { [weak self] in
                 return self?.lastMessageId
@@ -168,7 +186,9 @@ class ChatsViewModel: ObservableObject {
                         Log.error("❌ Failed to convert message: \(error)", category: "ChatsViewModel")
                     }
                 }
-            }
+            },
+            pollingTimeout: pollingTimeout,
+            postSuccessDelaySeconds: postSuccessDelaySeconds
         )
     }
 

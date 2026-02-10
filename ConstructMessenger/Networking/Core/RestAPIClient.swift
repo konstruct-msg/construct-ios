@@ -487,17 +487,33 @@ struct EndSessionResponse: Codable {
 struct PublicKeyBundleArrayResponse: Codable {
     let keyBundle: KeyBundleObject
     let username: String
+    let verifyingKey: String
 
     init(from decoder: Decoder) throws {
+        if let keyed = try? decoder.container(keyedBy: CodingKeys.self) {
+            self.keyBundle = try keyed.decode(KeyBundleObject.self, forKey: .keyBundle)
+            self.username = try keyed.decode(String.self, forKey: .username)
+            self.verifyingKey = try keyed.decode(String.self, forKey: .verifyingKey)
+            return
+        }
+
         var container = try decoder.unkeyedContainer()
         self.keyBundle = try container.decode(KeyBundleObject.self)
         self.username = try container.decode(String.self)
+        self.verifyingKey = self.keyBundle.masterIdentityKey
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.unkeyedContainer()
-        try container.encode(keyBundle)
-        try container.encode(username)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(keyBundle, forKey: .keyBundle)
+        try container.encode(username, forKey: .username)
+        try container.encode(verifyingKey, forKey: .verifyingKey)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case keyBundle
+        case username
+        case verifyingKey
     }
 }
 

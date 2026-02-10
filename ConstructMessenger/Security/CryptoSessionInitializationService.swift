@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 final class CryptoSessionInitializationService {
     func initializeSession(
@@ -24,10 +25,22 @@ final class CryptoSessionInitializationService {
             archiveSession(userId, .manualReset)
         }
 
-        guard let identityPublicData = Data(base64Encoded: recipientBundle.identityPublic),
-              let signedPrekeyPublicData = Data(base64Encoded: recipientBundle.signedPrekeyPublic),
-              let signatureData = Data(base64Encoded: recipientBundle.signature),
-              let verifyingKeyData = Data(base64Encoded: recipientBundle.verifyingKey) else {
+        Log.debug("🔐 Session init bundle lengths: identity=\(recipientBundle.identityPublic.count), signedPrekey=\(recipientBundle.signedPrekeyPublic.count), signature=\(recipientBundle.signature.count), verifyingKey=\(recipientBundle.verifyingKey.count), suiteId=\(recipientBundle.suiteId)", category: "CryptoManager")
+
+        guard let identityPublicData = Data(base64Encoded: recipientBundle.identityPublic) else {
+            Log.error("❌ Invalid base64: identityPublic", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let signedPrekeyPublicData = Data(base64Encoded: recipientBundle.signedPrekeyPublic) else {
+            Log.error("❌ Invalid base64: signedPrekeyPublic", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let signatureData = Data(base64Encoded: recipientBundle.signature) else {
+            Log.error("❌ Invalid base64: signature", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let verifyingKeyData = Data(base64Encoded: recipientBundle.verifyingKey) else {
+            Log.error("❌ Invalid base64: verifyingKey", category: "CryptoManager")
             throw CryptoManagerError.invalidKeyData
         }
 
@@ -50,6 +63,7 @@ final class CryptoSessionInitializationService {
             sessionStore.setSession(userId: userId, sessionId: sessionId, suiteId: suiteID)
             saveSession(userId)
         } catch {
+            Log.error("❌ Rust core initSession failed: \(error)", category: "CryptoManager")
             throw CryptoManagerError.sessionInitializationFailed
         }
     }
@@ -71,10 +85,22 @@ final class CryptoSessionInitializationService {
             archiveSession(userId, .manualReset)
         }
 
-        guard let identityPublicData = Data(base64Encoded: recipientBundle.identityPublic),
-              let signedPrekeyPublicData = Data(base64Encoded: recipientBundle.signedPrekeyPublic),
-              let signatureData = Data(base64Encoded: recipientBundle.signature),
-              let verifyingKeyData = Data(base64Encoded: recipientBundle.verifyingKey) else {
+        Log.debug("🔐 Receiving init bundle lengths: identity=\(recipientBundle.identityPublic.count), signedPrekey=\(recipientBundle.signedPrekeyPublic.count), signature=\(recipientBundle.signature.count), verifyingKey=\(recipientBundle.verifyingKey.count), suiteId=\(recipientBundle.suiteId)", category: "CryptoManager")
+
+        guard let identityPublicData = Data(base64Encoded: recipientBundle.identityPublic) else {
+            Log.error("❌ Invalid base64: identityPublic", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let signedPrekeyPublicData = Data(base64Encoded: recipientBundle.signedPrekeyPublic) else {
+            Log.error("❌ Invalid base64: signedPrekeyPublic", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let signatureData = Data(base64Encoded: recipientBundle.signature) else {
+            Log.error("❌ Invalid base64: signature", category: "CryptoManager")
+            throw CryptoManagerError.invalidKeyData
+        }
+        guard let verifyingKeyData = Data(base64Encoded: recipientBundle.verifyingKey) else {
+            Log.error("❌ Invalid base64: verifyingKey", category: "CryptoManager")
             throw CryptoManagerError.invalidKeyData
         }
 
@@ -112,6 +138,7 @@ final class CryptoSessionInitializationService {
             saveSession(userId)
             return result.decryptedMessage
         } catch {
+            Log.error("❌ Rust core initReceivingSession failed: \(error)", category: "CryptoManager")
             throw CryptoManagerError.sessionInitializationFailed
         }
     }

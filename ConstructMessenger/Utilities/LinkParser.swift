@@ -41,18 +41,12 @@ struct ContactInfo: Equatable {
 }
 
 struct LinkParser {
-    // Legacy format: https://konstruct.cc/c/{userId}?username={username}
-    static let legacyContactLinkPrefixes = [
-        "https://konstruct.cc/c/",
-        "https://web.konstruct.cc/c/"
-    ]
-    
-    // Dynamic Invite format: konstruct://add?invite={base64} or https://konstruct.cc/add?invite={base64}
-    static let dynamicInvitePrefixes = [
-        "konstruct://add",
-        "https://konstruct.cc/add",
-        "https://web.konstruct.cc/add"
-    ]
+    private static var allowedHosts: Set<String> {
+        [
+            ServerConfig.inviteHost,
+            "web.\(ServerConfig.inviteHost)"
+        ]
+    }
     
     private static let verifier = InviteVerifier()
 
@@ -60,12 +54,12 @@ struct LinkParser {
         let urlString = url.absoluteString
         
         // Try Dynamic Invite format first
-        if dynamicInvitePrefixes.contains(where: { urlString.hasPrefix($0) }) {
+        if isDynamicInviteURL(url) {
             do {
                 return try await parseDynamicInvite(url)
             } catch {
                 Log.info("⚠️ Dynamic invite parse failed, trying legacy parser: \(error.localizedDescription)", category: "LinkParser")
-                if legacyContactLinkPrefixes.contains(where: { urlString.hasPrefix($0) }) {
+                if isLegacyContactURL(url) {
                     return try parseLegacyContactLink(url)
                 }
                 throw error
@@ -73,10 +67,11 @@ struct LinkParser {
         }
         
         // Fallback to legacy format
-        if legacyContactLinkPrefixes.contains(where: { urlString.hasPrefix($0) }) {
+        if isLegacyContactURL(url) {
             return try parseLegacyContactLink(url)
         }
-        
+
+        Log.error("❌ Unsupported contact link prefix: \(urlString)", category: "LinkParser")
         throw ContactLinkError.invalidPrefix
     }
     
@@ -94,15 +89,15 @@ struct LinkParser {
             throw ContactLinkError.inviteInvalid("Malformed invite data")
         }
         
-        // Check expiry (default TTL: 3 minutes)
-        if invite.isExpired(ttl: 180) {
+        // Check expiry
+        if invite.isExpired(ttl: InviteConfig.ttlSeconds) {
             Log.info("⚠️ Invite expired: jti=\(invite.jti.prefix(8))...", category: "LinkParser")
             throw ContactLinkError.inviteExpired
         }
         
         // Verify signature
         do {
-            _ = try await verifier.verify(invite, ttl: 180)
+            _ = try await verifier.verify(invite, ttl: InviteConfig.ttlSeconds)
         } catch {
             Log.error("❌ Invite verification failed: \(error)", category: "LinkParser")
             throw ContactLinkError.verificationFailed(error)
@@ -160,5 +155,22 @@ struct LinkParser {
             ephemeralKey: nil,
             isDynamic: false
         )
+    }
+
+    private static func isDynamicInviteURL(_ url: URL) -> Bool {
+        if let scheme = url.scheme?.lowercased(), scheme == "konstruct" {
+            if url.host?.lowercased() == "add" {
+                return true
+            }
+            return url.path.lowercased().hasPrefix("/add")
+        }
+
+        guard let host = url.host?.lowercased() else { return false }
+        return allowedHosts.contains(host) && url.path.lowercased().hasPrefix("/add")
+    }
+
+    private static func isLegacyContactURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return allowedHosts.contains(host) && url.path.lowercased().hasPrefix("/c/")
     }
 }

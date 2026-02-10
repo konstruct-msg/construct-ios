@@ -21,6 +21,21 @@ enum BuildConfiguration {
     }
 }
 
+// MARK: - Account Deletion Configuration
+struct AccountDeletionConfig {
+    static let challengeTTLSeconds: TimeInterval = 60
+}
+
+// MARK: - Avatar Styling
+struct AvatarStyle {
+    static let chatSize: CGFloat = 50
+    static let chatCornerRadius: CGFloat = 12
+    static let settingsSize: CGFloat = 54
+    static let settingsCornerRadius: CGFloat = 12
+    static let accountSize: CGFloat = 100
+    static let accountCornerRadius: CGFloat = 22
+}
+
 // MARK: - Server Configuration
 struct ServerConfig {
     // Primary server URL - API Gateway (routes to all services)
@@ -35,6 +50,21 @@ struct ServerConfig {
     static var serverURLs: [String] {
         return [defaultRestAPIURL]
     }
+}
+
+// MARK: - Invite Configuration
+struct InviteConfig {
+    static let supportedVersions: Set<Int> = [1, 2]
+    static let currentVersion: Int = 2
+    static let ttlSeconds: TimeInterval = 300 // 5 minutes
+    static let maxFutureSkewSeconds: TimeInterval = 300 // 5 minutes
+    static let deviceIdLength = 32
+    static let deviceIdRegex = "^[a-f0-9]{32}$"
+    static let ephKeyLengthBytes = 32
+    static let signatureLengthBytes = 64
+    static let qrWarningThresholdSeconds: TimeInterval = 60
+    static let qrCodePrefixScheme = "konstruct://add"
+    static let qrCountdownTickSeconds: TimeInterval = 5
 }
 
 
@@ -258,6 +288,11 @@ struct LongPollingConfig {
     // Add light jitter after successful polls to reduce timing correlation
     static let successJitterMinMs: UInt64 = 100
     static let successJitterMaxMs: UInt64 = 900
+
+    // Polling behavior
+    static let fullTimeoutSeconds: Int = 30
+    static let minimalTimeoutSeconds: Int = 30
+    static let minimalPostPollDelaySeconds: TimeInterval = 60
 }
 
 // MARK: - WebSocket Configuration

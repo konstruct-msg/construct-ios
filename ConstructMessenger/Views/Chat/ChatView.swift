@@ -332,6 +332,7 @@ struct ChatView: View {
             .presentationDragIndicator(.visible)
         }
         .onAppear {
+            guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
             markChatAsRead()
             viewModel.onViewAppear()
             loadContactKTStatus()
@@ -349,6 +350,7 @@ struct ChatView: View {
             loadContactKTStatus()
         }
         .onDisappear {
+            guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
             // Изъян 7: cancel heartbeat scheduling when chat is closed.
             if let contactId = viewModel.chat.otherUser?.id, !contactId.isEmpty {
                 _ = try? CryptoManager.shared.handleOrchestratorEvent(
